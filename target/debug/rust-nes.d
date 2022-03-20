@@ -1,0 +1,1 @@
+/home/chris/Documents/projects/rust-nes/target/debug/rust-nes: /home/chris/Documents/projects/rust-nes/src/cart.rs /home/chris/Documents/projects/rust-nes/src/cpu.rs /home/chris/Documents/projects/rust-nes/src/main.rs
