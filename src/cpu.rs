@@ -1,26 +1,28 @@
+use crate::cart::Cart;
+
 #[allow(non_snake_case)]
 pub struct Cpu {
-    PC: u16,
-    ACC: u8,
-    X: u8,
-    Y: u8,
-    SR: SR,
-    SP: u8,
+    pub PC: u16,
+    pub ACC: u8,
+    pub X: u8,
+    pub Y: u8,
+    pub SR: SR,
+    pub SP: u8,
     //TODO: should this be part of the cpu or should we put it somewhere else?
     WRAM: [u8; 2048],
 }
 
 #[allow(non_snake_case)]
 //status register struct
-struct SR {
-    N: bool,
-    V: bool,
-    NA: bool,
-    B: bool,
-    D: bool,
-    I: bool,
-    Z: bool,
-    C: bool,
+pub struct SR {
+    pub N: bool,
+    pub V: bool,
+    pub NA: bool,
+    pub B: bool,
+    pub D: bool,
+    pub I: bool,
+    pub Z: bool,
+    pub C: bool,
 }
 
 //functions to encode and decode the SR
@@ -104,13 +106,15 @@ impl Cpu {
 
     //so when the cpu reads or writes to an address, these functions should dispatch the rw to
     //the appropriate part
-    fn read(&mut self, addr: u16) -> u8 {
+
+    //TODO: to handle reads to other parts of the system, we must pass in mutable refrences to every other component
+    pub fn read(&mut self, addr: u16, cart: &mut Cart) -> u8 {
         match addr {
             //WRAM(2kb) + 3 mirrors
             0x0000..=0x1FFF => {
                 let final_addr = addr % 2048;
-                //self.wram[final_addr]
-                return 0;
+                self.WRAM[final_addr as usize]
+                //return 0;
             }
             //PPU control regs (8 bytes) + a fuckton of mirrors
             0x2000..=0x3FFF => {
@@ -129,12 +133,27 @@ impl Cpu {
                 return 0;
             }
             //PRG-ROM (32K)
-            0x8000..=0xFFFF => {
-                return 0;
-            }
+            0x8000..=0xFFFF => cart.read(addr),
         }
     }
     fn write(&mut self, addr: u16, byte: u8) {
-        //elf.prg_rom[addr as usize] = byte;
+        match addr {
+            //WRAM(2kb) + 3 mirrors
+            0x0000..=0x1FFF => {
+                let final_addr = addr % 2048;
+                self.WRAM[final_addr as usize] = byte;
+                //return 0;
+            }
+            //PPU control regs (8 bytes) + a fuckton of mirrors
+            0x2000..=0x3FFF => {}
+            //registers (apu and io)
+            0x4000..=0x4017 => {}
+            //cart expansion
+            0x4018..=0x5FFF => {}
+            //cart SRAM (8k)
+            0x6000..=0x7FFF => {}
+            //PRG-ROM (32K)
+            0x8000..=0xFFFF => {}
+        }
     }
 }
