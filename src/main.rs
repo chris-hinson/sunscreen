@@ -8,7 +8,7 @@ use cpu::Cpu;
 use nes::NES;
 
 fn main() {
-    println!("rust emu go brrrr");
+    //println!("rust emu go brrrr");
 
     //beep boop we just want to pass nestest
     let filename = "./test-roms/nestest/nestest.nes";
@@ -25,6 +25,8 @@ fn main() {
     let mut nes = NES::new(cpu, cart);
 
     //run one step of our system
-    nes.step();
-    nes.step();
+    //TODO: this is so fucking hacky lmao
+    while nes.cycles < 26554 {
+        nes.step();
+    }
 }

@@ -1,6 +1,7 @@
 use crate::cart::Cart;
-
+use std::fmt;
 #[allow(non_snake_case)]
+#[derive(Debug)]
 pub struct Cpu {
     pub PC: u16,
     pub ACC: u8,
@@ -12,7 +13,22 @@ pub struct Cpu {
     WRAM: [u8; 2048],
 }
 
+impl fmt::Display for Cpu {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X}",
+            self.ACC,
+            self.X,
+            self.Y,
+            self.SR.decode(),
+            self.SP
+        )
+    }
+}
+
 #[allow(non_snake_case)]
+#[derive(Debug)]
 //status register struct
 pub struct SR {
     pub N: bool,
@@ -28,7 +44,7 @@ pub struct SR {
 //functions to encode and decode the SR
 impl SR {
     //turn the struct into a u8
-    fn decode(&self) -> u8 {
+    pub fn decode(&self) -> u8 {
         let mut ret_field: u8 = 0b00000000;
         if self.N {
             ret_field |= 0x1 << 7
@@ -36,7 +52,9 @@ impl SR {
         if self.V {
             ret_field |= 0x1 << 6
         };
-        //dont touch the NA reg
+        if self.NA {
+            ret_field |= 0x1 << 5;
+        }
         if self.B {
             ret_field |= 0x1 << 4;
         };
@@ -59,7 +77,7 @@ impl SR {
     fn encode(&mut self, val: u8) {
         self.N = (val & 0b1000_0000) >> 7 == 0x1;
         self.V = (val & 0b0100_0000) >> 6 == 0x1;
-        //dont touch the NA
+        self.NA = (val & 0b0010_0000) >> 5 == 0x1;
         self.B = (val & 0b0001_0000) >> 4 == 0x1;
         self.D = (val & 0b0000_1000) >> 3 == 0x1;
         self.I = (val & 0b0000_0100) >> 2 == 0x1;
@@ -82,15 +100,18 @@ impl SR {
 
 impl Cpu {
     pub fn new() -> Self {
-        Cpu {
+        let mut our_cpu = Cpu {
             PC: 0x0,
             ACC: 0x0,
             X: 0x0,
             Y: 0x0,
             SR: SR::new(),
-            SP: 0x0,
+            SP: 0xFD,
             WRAM: [0; 2048],
-        }
+        };
+
+        our_cpu.SR.encode(0b0010_0100);
+        return our_cpu;
     }
 
     //memory operations
@@ -116,7 +137,7 @@ impl Cpu {
                 self.WRAM[final_addr as usize]
                 //return 0;
             }
-            //PPU control regs (8 bytes) + a fuckton of mirrors
+            //PPU control regs a PM at gs (8 bytes) + a fuckton of mirrors
             0x2000..=0x3FFF => {
                 return 0;
             }
@@ -136,7 +157,7 @@ impl Cpu {
             0x8000..=0xFFFF => cart.read(addr),
         }
     }
-    fn write(&mut self, addr: u16, byte: u8) {
+    pub fn write(&mut self, addr: u16, byte: u8) {
         match addr {
             //WRAM(2kb) + 3 mirrors
             0x0000..=0x1FFF => {
