@@ -13,6 +13,6 @@ impl Cart {
     }
 
     pub fn write(&mut self, addr: u16, byte: u8) {
-        self.prg_rom[(addr- 0xc000) as usize] = byte;
+        self.prg_rom[(addr - 0xc000) as usize] = byte;
     }
 }

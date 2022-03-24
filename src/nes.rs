@@ -69,7 +69,23 @@ impl NES {
                 self.cpu.PC += 1;
             }
             0x09 => {
-                panic!("unimplemented op {:#02x}", instr)
+                //OR mem with acc
+                //imm addressing
+                let imm = self.cpu.read((self.cpu.PC + 1) as u16, &mut self.cart);
+
+                println!(
+                    "{:04X}  09 {imm:02X}     ORA #${imm:02X}                        {}             CYC:{}",
+                    self.cpu.PC, self.cpu, self.cycles
+                );
+
+                let result = imm | self.cpu.ACC;
+                self.cpu.SR.Z = result == 0;
+                self.cpu.SR.N = (result as i8) < 0;
+
+                self.cpu.ACC = result;
+
+                self.cpu.PC += 2;
+                self.cycles += 2;
             }
             0x0A => {
                 panic!("unimplemented op {:#02x}", instr)
@@ -410,7 +426,23 @@ impl NES {
                 self.cpu.PC += 1;
             }
             0x49 => {
-                panic!("unimplemented op {:#02x}", instr)
+                //XOR mem with acc
+                //imm addressing
+                let imm = self.cpu.read((self.cpu.PC + 1) as u16, &mut self.cart);
+
+                println!(
+                    "{:04X}  49 {imm:02X}     EOR #${imm:02X}                        {}             CYC:{}",
+                    self.cpu.PC, self.cpu, self.cycles
+                );
+
+                let result = imm ^ self.cpu.ACC;
+                self.cpu.SR.Z = result == 0;
+                self.cpu.SR.N = (result as i8) < 0;
+
+                self.cpu.ACC = result;
+
+                self.cpu.PC += 2;
+                self.cycles += 2;
             }
             0x4A => {
                 panic!("unimplemented op {:#02x}", instr)
@@ -939,7 +971,14 @@ impl NES {
                 panic!("unimplemented op {:#02x}", instr)
             }
             0xB8 => {
-                panic!("unimplemented op {:#02x}", instr)
+                //clear overflow mode
+                println!(
+                    "{:04X}  B8        CLV                             {}             CYC:{}",
+                    self.cpu.PC, self.cpu, self.cycles
+                );
+                self.cpu.SR.V = false;
+                self.cycles += 2;
+                self.cpu.PC += 1;
             }
             0xB9 => {
                 panic!("unimplemented op {:#02x}", instr)
