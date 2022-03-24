@@ -230,7 +230,26 @@ impl NES {
                 panic!("unimplemented op {:#02x}", instr)
             }
             0x28 => {
-                panic!("unimplemented op {:#02x}", instr)
+                //PLP Pull Processor Status from Stack
+
+                println!(
+                    "{:04X}  28        PLP                             {}             CYC:{}",
+                    self.cpu.PC, self.cpu, self.cycles
+                );
+
+                //move sp up one
+                self.cpu.SP += 1;
+
+                //read the SR
+                let mut new_sr = self.cpu.read(self.cpu.SP as u16, &mut self.cart);
+                //explicitly ignore bits 4 and 5
+                new_sr &= 0b1100_1111;
+                new_sr |= (self.cpu.SR.decode() & 0b0011_0000);
+
+                self.cpu.SR.encode(new_sr);
+
+                self.cycles += 4;
+                self.cpu.PC += 1;
             }
             0x29 => {
                 //AND mem with acc
@@ -271,7 +290,29 @@ impl NES {
             }
 
             0x30 => {
-                panic!("unimplemented op {:#02x}", instr)
+                //BMI Branch on Result Minus
+                //branch if n flag is set lol
+
+                //add 1 to cycles if branch occurs on same page
+                //add 2 to cycles if branch occurs to different page
+
+                let targ_offset = self.cpu.read(self.cpu.PC + 1, &mut self.cart);
+                //target addr is the offsett plus the width of the instruction(2)
+                let targ_addr = self.cpu.PC as i16 + (targ_offset as i16) + 2;
+                println!("{:04X}  30 {targ_offset:02X}     BMI ${targ_addr:4X}                       {}             CYC:{}",self.cpu.PC,self.cpu,self.cycles);
+
+                if self.cpu.SR.N {
+                    let boundary_change = self.cpu.PC % 256 != (targ_addr % 256) as u16;
+                    self.cpu.PC = targ_addr as u16;
+                    if boundary_change {
+                        self.cycles += 3
+                    } else {
+                        self.cycles += 2
+                    };
+                } else {
+                    self.cpu.PC += 2;
+                    self.cycles += 2;
+                }
             }
             0x31 => {
                 panic!("unimplemented op {:#02x}", instr)
@@ -354,7 +395,19 @@ impl NES {
                 panic!("unimplemented op {:#02x}", instr)
             }
             0x48 => {
-                panic!("unimplemented op {:#02x}", instr)
+                //PHA push acc
+
+                println!(
+                    "{:04X}  48        PHA                             {}             CYC:{}",
+                    self.cpu.PC, self.cpu, self.cycles
+                );
+
+                self.cpu.write(self.cpu.SP as u16, self.cpu.ACC);
+
+                self.cpu.SP -= 1;
+
+                self.cycles += 3;
+                self.cpu.PC += 1;
             }
             0x49 => {
                 panic!("unimplemented op {:#02x}", instr)

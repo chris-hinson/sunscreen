@@ -74,7 +74,7 @@ impl SR {
         ret_field
     }
     //turn a u8 into an SR
-    fn encode(&mut self, val: u8) {
+    pub fn encode(&mut self, val: u8) {
         self.N = (val & 0b1000_0000) >> 7 == 0x1;
         self.V = (val & 0b0100_0000) >> 6 == 0x1;
         self.NA = (val & 0b0010_0000) >> 5 == 0x1;
