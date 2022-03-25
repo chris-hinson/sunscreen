@@ -603,7 +603,34 @@ impl NES {
                 self.cpu.PC += 1;
             }
             0x69 => {
-                panic!("unimplemented op {:#02x}", instr)
+                //ADC
+                //immeadiate
+                let mut imm = self.cpu.read(self.cpu.PC + 1, &mut self.cart);
+                print!(
+                    "{:04X}  69 {imm:02X}     ADC #${imm:02X}                        {}             CYC:{}",
+                    self.cpu.PC, self.cpu, self.cycles
+                );
+
+                /*if self.cpu.SR.C {
+                    imm = imm.wrapping_add(1);
+                };*/
+
+                let prev_val = self.cpu.ACC;
+
+                //ACC + MEM + C
+                let res = (self.cpu.ACC).wrapping_add(imm);
+                println!(" {prev_val:02X} + {imm:02X} = {res:02X}");
+
+                self.cpu.ACC = res as u8;
+
+                self.cpu.SR.Z = self.cpu.ACC == 0;
+                self.cpu.SR.N = (self.cpu.ACC as i8) < 0;
+                self.cpu.SR.C = self.cpu.ACC < prev_val;
+                self.cpu.SR.V = ((prev_val as i8) < 0 && (imm as i8) < 0 && self.cpu.ACC as i8 > 0)
+                    || ((prev_val as i8) > 0 && (imm as i8) > 0 && (self.cpu.ACC as i8) < 0);
+
+                self.cpu.PC += 2;
+                self.cycles += 2;
             }
             0x6A => {
                 panic!("unimplemented op {:#02x}", instr)
@@ -846,7 +873,22 @@ impl NES {
             }
 
             0xA0 => {
-                panic!("unimplemented op {:#02x}", instr)
+                //LDY imm
+                //imm to be loaded comes immeadiately after op in memory
+                let imm = self.cpu.read(self.cpu.PC + 1, &mut self.cart);
+
+                println!(
+                    "{:04X}  A0 {imm:02X}     LDY #${imm:02X}                        {}             CYC:{}",
+                    self.cpu.PC,  self.cpu, self.cycles
+                );
+
+                self.cpu.SR.Z = imm == 0;
+                self.cpu.SR.N = (imm as i8) < 0;
+
+                self.cpu.Y = imm;
+
+                self.cpu.PC += 2;
+                self.cycles += 2;
             }
             0xA1 => {
                 panic!("unimplemented op {:#02x}", instr)
@@ -857,8 +899,8 @@ impl NES {
                 let imm = self.cpu.read(self.cpu.PC + 1, &mut self.cart);
 
                 println!(
-                    "{:04X}  {} {:02x}     {} #${:02x}                        {}             CYC:{}",
-                    self.cpu.PC, "A2", imm, "LDX", imm, self.cpu, self.cycles
+                    "{:04X}  A2 {imm:02X}     LDX #${imm:02X}                        {}             CYC:{}",
+                    self.cpu.PC, self.cpu, self.cycles
                 );
 
                 self.cpu.SR.Z = imm == 0;
@@ -1003,7 +1045,22 @@ impl NES {
             }
 
             0xC0 => {
-                panic!("unimplemented op {:#02x}", instr)
+                //CMY compare mem and index y
+                let val = self.cpu.read((self.cpu.PC + 1) as u16, &mut self.cart);
+                println!(
+                    "{:04X}  C0 {val:02X}     CPY #${val:02X}                        {}             CYC:{}",
+                    self.cpu.PC, self.cpu, self.cycles
+                );
+
+                let res = (self.cpu.Y).wrapping_sub(val);
+
+                self.cpu.SR.N = (res as i8) < 0;
+                self.cpu.SR.Z = res == 0;
+                //carry set if NO borrow
+                self.cpu.SR.C = val <= self.cpu.Y;
+
+                self.cpu.PC += 2;
+                self.cycles += 2;
             }
             0xC1 => {
                 panic!("unimplemented op {:#02x}", instr)
@@ -1027,7 +1084,18 @@ impl NES {
                 panic!("unimplemented op {:#02x}", instr)
             }
             0xC8 => {
-                panic!("unimplemented op {:#02x}", instr)
+                //increment y by one
+                println!(
+                    "{:04X}  C8        INY                             {}             CYC:{}",
+                    self.cpu.PC, self.cpu, self.cycles
+                );
+                self.cpu.Y += 1;
+
+                self.cpu.SR.N = (self.cpu.Y as i8) < 0;
+                self.cpu.SR.Z = self.cpu.Y == 0;
+
+                self.cpu.PC += 1;
+                self.cycles += 2;
             }
             0xC9 => {
                 //CMP mem with acc
@@ -1037,12 +1105,18 @@ impl NES {
                     self.cpu.PC, self.cpu, self.cycles
                 );
 
-                let res = self.cpu.ACC as i8 - val as i8;
+                let res = (self.cpu.ACC).wrapping_sub(val);
 
-                self.cpu.SR.N = res < 0;
+                /*println!("curr ACC: {:02X} - {val:02X} = ", self.cpu.ACC);
+                print!("res: {:02X}  ", res);
+                print!("N: {}  ", (res as i8) < 0);
+                print!("Z: {}  ", res == 0);
+                println!("C: {}", res <= val);*/
+
+                self.cpu.SR.N = (res as i8) < 0;
                 self.cpu.SR.Z = res == 0;
-                //we need to carry if we subtract a value greater than the acc
-                self.cpu.SR.C = self.cpu.ACC <= val;
+                //carry set if NO borrow
+                self.cpu.SR.C = val <= self.cpu.ACC;
 
                 self.cpu.PC += 2;
                 self.cycles += 2;
@@ -1145,7 +1219,22 @@ impl NES {
             }
 
             0xE0 => {
-                panic!("unimplemented op {:#02x}", instr)
+                //CMY compare mem and index x
+                let val = self.cpu.read((self.cpu.PC + 1) as u16, &mut self.cart);
+                println!(
+                    "{:04X}  E0 {val:02X}     CPX #${val:02X}                        {}             CYC:{}",
+                    self.cpu.PC, self.cpu, self.cycles
+                );
+
+                let res = (self.cpu.X).wrapping_sub(val);
+
+                self.cpu.SR.N = (res as i8) < 0;
+                self.cpu.SR.Z = res == 0;
+                //carry set if NO borrow
+                self.cpu.SR.C = val <= self.cpu.X;
+
+                self.cpu.PC += 2;
+                self.cycles += 2;
             }
             0xE1 => {
                 panic!("unimplemented op {:#02x}", instr)
@@ -1172,7 +1261,32 @@ impl NES {
                 panic!("unimplemented op {:#02x}", instr)
             }
             0xE9 => {
-                panic!("unimplemented op {:#02x}", instr)
+                //SBC
+                //A =  A - M -C
+                //immeadiate
+                let imm = self.cpu.read(self.cpu.PC + 1, &mut self.cart);
+                println!(
+                    "{:04X}  E9 {imm:02X}     SBC #${imm:02X}                        {}             CYC:{}",
+                    self.cpu.PC, self.cpu, self.cycles
+                );
+
+                let prev_val = self.cpu.ACC;
+
+                //A =  A - M - C
+                let mut res = self.cpu.ACC.overflowing_sub(imm);
+                if !self.cpu.SR.C {
+                    res = res.0.overflowing_sub(1);
+                };
+
+                self.cpu.ACC = res.0;
+
+                self.cpu.SR.Z = self.cpu.ACC == 0;
+                self.cpu.SR.N = (self.cpu.ACC as i8) < 0;
+                self.cpu.SR.C = self.cpu.ACC < prev_val;
+                self.cpu.SR.V = res.1;
+
+                self.cpu.PC += 2;
+                self.cycles += 2;
             }
             0xEA => {
                 //nop
