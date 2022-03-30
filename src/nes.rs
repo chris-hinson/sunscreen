@@ -605,29 +605,37 @@ impl NES {
             0x69 => {
                 //ADC
                 //immeadiate
-                let mut imm = self.cpu.read(self.cpu.PC + 1, &mut self.cart);
+                let imm = self.cpu.read(self.cpu.PC + 1, &mut self.cart);
                 print!(
                     "{:04X}  69 {imm:02X}     ADC #${imm:02X}                        {}             CYC:{}",
                     self.cpu.PC, self.cpu, self.cycles
                 );
 
-                /*if self.cpu.SR.C {
-                    imm = imm.wrapping_add(1);
-                };*/
-
-                let prev_val = self.cpu.ACC;
+                let prev_acc = self.cpu.ACC;
 
                 //ACC + MEM + C
-                let res = (self.cpu.ACC).wrapping_add(imm);
-                println!(" {prev_val:02X} + {imm:02X} = {res:02X}");
 
-                self.cpu.ACC = res as u8;
+                //first lets do acc + mem and see if we overflow
+                let first_add_result = (self.cpu.ACC).overflowing_add(imm);
+                let first_add_value = first_add_result.0;
+                let first_overflow = first_add_result.1;
+                println!(" {prev_acc:02X} + {imm:02X} = {first_add_value:02X}");
+
+                //now we do the second add, and see if we overflow again
+                let mut second_overflow = false;
+                let mut second_add_value = first_add_value;
+                if self.cpu.SR.C {
+                    let second_add_result = first_add_value.overflowing_add(1);
+                    second_overflow = second_add_result.1;
+                    second_add_value = second_add_result.0;
+                }
+
+                self.cpu.ACC = second_add_value as u8;
 
                 self.cpu.SR.Z = self.cpu.ACC == 0;
                 self.cpu.SR.N = (self.cpu.ACC as i8) < 0;
-                self.cpu.SR.C = self.cpu.ACC < prev_val;
-                self.cpu.SR.V = ((prev_val as i8) < 0 && (imm as i8) < 0 && self.cpu.ACC as i8 > 0)
-                    || ((prev_val as i8) > 0 && (imm as i8) > 0 && (self.cpu.ACC as i8) < 0);
+                self.cpu.SR.C = self.cpu.ACC < prev_acc;
+                self.cpu.SR.V = first_overflow || second_overflow;
 
                 self.cpu.PC += 2;
                 self.cycles += 2;
