@@ -2,6 +2,7 @@ use std::fs;
 
 mod cart;
 mod cpu;
+mod instr;
 mod nes;
 use cart::Cart;
 use cpu::Cpu;
@@ -23,6 +24,10 @@ fn main() {
 
     //make our full system
     let mut nes = NES::new(cpu, cart);
+    println!(
+        "intial state (following reset vector)           {} CYC:{}",
+        nes.cpu, nes.cycles
+    );
 
     //run one step of our system
     //TODO: this is so fucking hacky lmao

@@ -8,8 +8,8 @@ impl Cart {
     }
 
     //TODO: these will vary WILDLY based upon the mapper right now we're just hardcoding it for nestest
-    pub fn read(&mut self, addr: u16) -> u8 {
-        return self.prg_rom[(addr - 0xc000) as usize];
+    pub fn read(&mut self, addr: u16, length: usize) -> Vec<u8> {
+        return self.prg_rom[(addr - 0xc000) as usize..(addr - 0xc000) as usize + length].into();
     }
 
     pub fn write(&mut self, addr: u16, byte: u8) {

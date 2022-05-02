@@ -1,0 +1,21 @@
+intial state (following reset vector)           A:00 X:00 Y:00 P:  N:0 V:0 B:10 D:0 I:1 Z:0 C:0  SP:FD  CYC:7
+C000  4C F5 C5  JMP $C5F5                       A:00 X:00 Y:00 P:  N:0 V:0 B:10 D:0 I:1 Z:0 C:0  SP:FD  CYC:10
+C5F5  A2 00     LDX #$00                        A:00 X:00 Y:00 P:  N:0 V:0 B:10 D:0 I:1 Z:1 C:0  SP:FD  CYC:12
+C5F7  86 00     STX $00 = 00                    A:00 X:00 Y:00 P:  N:0 V:0 B:10 D:0 I:1 Z:1 C:0  SP:FD  CYC:15
+C5F9  86 10     STX $10 = 00                    A:00 X:00 Y:00 P:  N:0 V:0 B:10 D:0 I:1 Z:1 C:0  SP:FD  CYC:18
+C5FB  86 11     STX $11 = 00                    A:00 X:00 Y:00 P:  N:0 V:0 B:10 D:0 I:1 Z:1 C:0  SP:FD  CYC:21
+C5FD  20 2D C7  JSR $C72D                       A:00 X:00 Y:00 P:  N:0 V:0 B:10 D:0 I:1 Z:1 C:0  SP:FB  CYC:27
+C72D  EA        NOP                             A:00 X:00 Y:00 P:  N:0 V:0 B:10 D:0 I:1 Z:1 C:0  SP:FB  CYC:29
+C72E  38        SEC                             A:00 X:00 Y:00 P:  N:0 V:0 B:10 D:0 I:1 Z:1 C:1  SP:FB  CYC:31
+C72F  B0 04     BCS $C735                       A:00 X:00 Y:00 P:  N:0 V:0 B:10 D:0 I:1 Z:1 C:1  SP:FB  CYC:34
+C735  EA        NOP                             A:00 X:00 Y:00 P:  N:0 V:0 B:10 D:0 I:1 Z:1 C:1  SP:FB  CYC:36
+C736  18        CLC                             A:00 X:00 Y:00 P:  N:0 V:0 B:10 D:0 I:1 Z:1 C:0  SP:FB  CYC:38
+C737  B0 03     BCS $C73C                       A:00 X:00 Y:00 P:  N:0 V:0 B:10 D:0 I:1 Z:1 C:0  SP:FB  CYC:40
+C739  4C 40 C7  JMP $C740                       A:00 X:00 Y:00 P:  N:0 V:0 B:10 D:0 I:1 Z:1 C:0  SP:FB  CYC:43
+C740  EA        NOP                             A:00 X:00 Y:00 P:  N:0 V:0 B:10 D:0 I:1 Z:1 C:0  SP:FB  CYC:45
+C741  38        SEC                             A:00 X:00 Y:00 P:  N:0 V:0 B:10 D:0 I:1 Z:1 C:1  SP:FB  CYC:47
+C742  90 03     BCC $C747                       A:00 X:00 Y:00 P:  N:0 V:0 B:10 D:0 I:1 Z:1 C:1  SP:FB  CYC:49
+C744  4C 4B C7  JMP $C74B                       A:00 X:00 Y:00 P:  N:0 V:0 B:10 D:0 I:1 Z:1 C:1  SP:FB  CYC:52
+C74B  EA        NOP                             A:00 X:00 Y:00 P:  N:0 V:0 B:10 D:0 I:1 Z:1 C:1  SP:FB  CYC:54
+C74C  18        CLC                             A:00 X:00 Y:00 P:  N:0 V:0 B:10 D:0 I:1 Z:1 C:0  SP:FB  CYC:56
+C74D  90 04     BCC $C753                       A:00 X:00 Y:00 P:  N:0 V:0 B:10 D:0 I:1 Z:1 C:0  SP:FB  CYC:59
