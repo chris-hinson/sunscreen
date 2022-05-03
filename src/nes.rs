@@ -28,16 +28,18 @@ impl NES {
         // the bytes that make up this instr,
         // padding out to 16 chars
         let instr: u8 = self.cpu.read(self.cpu.PC, &mut self.cart, 1)[0];
+
+        //println!("fetching {:04X}, found {instr:02X}", self.cpu.PC);
+
         let bytes = self.cpu.read(
             self.cpu.PC,
             &mut self.cart,
             self.instr_data.instrs[&instr].len,
         );
         let bytes_string = print_bytes(&bytes);
-        let padding: String = vec![" "; 16 - bytes_string.len()].join("");
-        //println!("fetching {:04X}, found {instr:02X}", self.cpu.PC);
+        let padding: String = vec![" "; 16 - (bytes_string.len() + 6)].join("");
 
-        print!("{:04X} {bytes_string}{padding}", self.cpu.PC);
+        print!("{:04X}  {bytes_string}{padding}", self.cpu.PC);
 
         //simulates full opcode space, including illegal instructions
         match instr {
@@ -103,11 +105,68 @@ impl NES {
 
                 self.cpu.PC = target;
                 self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+                println!("{} CYC:{}", self.cpu, self.cycles);
             }
             /*
             JSR jump subroutine
             LDA load accumulator
             LDX load X
+                immediate	LDX #oper	A2	2	2
+                zeropage	LDX oper	A6	2	3
+                zeropage,Y	LDX oper,Y	B6	2	4
+                absolute	LDX oper	AE	3	4
+                absolute,Y	LDX oper,Y	BE	3	4* */
+            0xA2 | 0xA6 | 0xB6 | 0xAE | 0xBE => {
+                print!("{} ", self.instr_data.instrs[&instr].name);
+                let val = match instr {
+                    0xA2 => {
+                        print!("#${:02X}                        ", bytes[1]);
+                        bytes[1]
+                    }
+                    0xA6 => {
+                        let addr = 0 as u16 | bytes[1] as u16;
+                        self.cpu.read(addr, &mut self.cart, 1)[0]
+                    }
+                    0xB6 => {
+                        let mut addr = 0 as u16 | bytes[1] as u16;
+                        addr += self.cpu.Y as u16;
+                        self.cpu.read(addr, &mut self.cart, 1)[0]
+                    }
+                    0xAE => {
+                        let addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
+                        self.cpu.read(addr, &mut self.cart, 1)[0]
+                    }
+                    0xBE => {
+                        let mut addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
+                        let init_page = addr % 256;
+                        addr += self.cpu.Y as u16;
+                        let final_page = addr % 256;
+                        //if we cross a page boundary with indexing, add a cycle
+                        if init_page != final_page {
+                            self.cycles += 1;
+                        }
+                        self.cpu.read(addr, &mut self.cart, 1)[0]
+                    }
+                    _ => 0,
+                };
+
+                //actual loading
+                self.cpu.X = val;
+
+                //set flags
+                self.cpu.SR.N = (val as i8) < 0;
+                self.cpu.SR.Z = val == 0;
+
+                //update PC
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+
+                //print cpu state after executing this operation
+                println!("{} CYC:{}", self.cpu, self.cycles);
+            }
+
+            /*
             LDY load Y
             LSR logical shift right
             NOP no operation
@@ -126,6 +185,36 @@ impl NES {
             SEI set interrupt disable
             STA store accumulator
             STX store X
+                zeropage	STX oper	86	2	3
+                zeropage,Y	STX oper,Y	96	2	4
+                absolute	STX oper	8E	3	4  */
+            0x86 | 0x96 | 0x8E => {
+                print!("{} ", self.instr_data.instrs[&instr].name);
+                let addr = if instr == 0x86 {
+                    let addr = 0 as u16 | bytes[1] as u16;
+                    print!("${:02X} = {:02X}                    ", addr, self.cpu.X);
+                    addr
+                } else if instr == 0x96 {
+                    let mut addr = 0 as u16 | bytes[1] as u16;
+                    addr += self.cpu.Y as u16;
+                    //STX $80,Y @ 7F = 00
+                    //print!("$")
+                    addr
+                } else {
+                    let addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
+                    addr
+                };
+
+                self.cpu.write(addr, &[self.cpu.X].to_vec());
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+
+                println!("{} CYC:{}", self.cpu, self.cycles);
+            }
+
+            /*
             STY store Y
             TAX transfer accumulator to X
             TAY transfer accumulator to Y

@@ -152,42 +152,58 @@ impl Cpu {
             }
             //PPU control regs a PM at gs (8 bytes) + a fuckton of mirrors
             0x2000..=0x3FFF => {
-                return [].into();
+                //return [].into();
+                unimplemented!("tried to read ppu control regs")
             }
             //registers (apu and io)
             0x4000..=0x4017 => {
-                return [].into();
+                //return [].into();
+                unimplemented!("tried to read apu/io regs")
             }
             //cart expansion
             0x4018..=0x5FFF => {
-                return [].into();
+                //return [].into();
+                unimplemented!("tried to read cart expansion")
             }
             //cart SRAM (8k)
             0x6000..=0x7FFF => {
-                return [].into();
+                //return [].into();
+                unimplemented!("tried to read cart SRAM")
             }
             //PRG-ROM (32K)
             0x8000..=0xFFFF => cart.read(addr, length).into(),
         }
     }
-    pub fn write(&mut self, addr: u16, byte: u8) {
+    pub fn write(&mut self, addr: u16, bytes: &Vec<u8>) {
         match addr {
             //WRAM(2kb) + 3 mirrors
             0x0000..=0x1FFF => {
-                let final_addr = addr % 2048;
-                self.WRAM[final_addr as usize] = byte;
-                //return 0;
+                let base_addr = addr % 2048;
+
+                for (i, b) in bytes.iter().enumerate() {
+                    self.WRAM[(base_addr as usize) + i] = *b;
+                }
             }
             //PPU control regs (8 bytes) + a fuckton of mirrors
-            0x2000..=0x3FFF => {}
+            0x2000..=0x3FFF => {
+                unimplemented!("tried to write to ppu control regs")
+            }
             //registers (apu and io)
-            0x4000..=0x4017 => {}
+            0x4000..=0x4017 => {
+                unimplemented!("tried to wrote to apu/io regs")
+            }
             //cart expansion
-            0x4018..=0x5FFF => {}
+            0x4018..=0x5FFF => {
+                unimplemented!("tried to write to cart expansion?")
+            }
             //cart SRAM (8k)
-            0x6000..=0x7FFF => {}
+            0x6000..=0x7FFF => {
+                unimplemented!("tried to write to cart SRAM")
+            }
             //PRG-ROM (32K)
-            0x8000..=0xFFFF => {}
+            0x8000..=0xFFFF => {
+                unimplemented!("tried to write to prg-rom??")
+            }
         }
     }
 }
