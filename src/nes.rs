@@ -2,6 +2,23 @@ use crate::cart::Cart;
 use crate::cpu::Cpu;
 use crate::instr::Instr;
 
+use std::fmt::Write;
+
+pub enum AddrMode {
+    ACC,
+    ABS,
+    ABSX,
+    ABSY,
+    IMM,
+    IND,
+    INDX,
+    INDY,
+    REL,
+    ZPG,
+    ZPGX,
+    ZPGY,
+}
+
 pub struct NES {
     pub cycles: u128,
     pub cpu: Cpu,
@@ -22,14 +39,195 @@ impl NES {
         }
     }
 
-    pub fn step(&mut self) {
+    /*
+    A	Accumulator	OPC A	operand is AC (implied single byte instruction)
+    abs	absolute	OPC $LLHH	operand is address $HHLL *
+    abs,X	absolute, X-indexed	OPC $LLHH,X	operand is address; effective address is address incremented by X with carry **
+    abs,Y	absolute, Y-indexed	OPC $LLHH,Y	operand is address; effective address is address incremented by Y with carry **
+    #	immediate	OPC #$BB	operand is byte BB
+    impl	implied	OPC	operand implied
+    ind	indirect	OPC ($LLHH)	operand is address; effective address is contents of word at address: C.w($HHLL)
+    X,ind	X-indexed, indirect	OPC ($LL,X)	operand is zeropage address; effective address is word in (LL + X, LL + X + 1), inc. without carry: C.w($00LL + X)
+    ind,Y	indirect, Y-indexed	OPC ($LL),Y	operand is zeropage address; effective address is word in (LL, LL + 1) incremented by Y with carry: C.w($00LL) + Y
+    rel	relative	OPC $BB	branch target is PC + signed offset BB ***
+    zpg	zeropage	OPC $LL	operand is zeropage address (hi-byte is zero, address = $00LL)
+    zpg,X	zeropage, X-indexed	OPC $LL,X	operand is zeropage address; effective address is address incremented by X without carry **
+    zpg,Y	zeropage, Y-indexed	OPC $LL,Y	operand is zeropage address; effective address is address incremented by Y without carry **
+    */
+
+    pub fn calc_addr(&mut self, bytes: &Vec<u8>, mode: AddrMode) -> u16 {
+        return match mode {
+            AddrMode::ABS => {
+                let addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
+                addr
+            }
+            AddrMode::ABSX => {
+                let base_addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
+                let addr = base_addr + self.cpu.X as u16;
+
+                //must incur a cycle penalty if we cross pages
+                let base_page = base_addr & 0xFF00;
+                let final_page = addr & 0xFF00;
+                if base_page != final_page {
+                    self.cycles += 1;
+                }
+
+                addr
+            }
+            AddrMode::ABSY => {
+                let base_addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
+                let addr = base_addr + self.cpu.Y as u16;
+
+                //must incur a cycle penalty if we cross pages
+                let base_page = base_addr & 0xFF00;
+                let final_page = addr & 0xFF00;
+                if base_page != final_page {
+                    self.cycles += 1;
+                }
+
+                addr
+            }
+            AddrMode::IND => {
+                unimplemented!("INDIRECT ADDRESSING NOT IMPLEMENTED")
+            }
+            AddrMode::INDX => {
+                unimplemented!("INDIRECT X-INDEXED ADDRESSING NOT IMPLEMENTED")
+            }
+            AddrMode::INDY => {
+                unimplemented!("Y-INDEXED INDIRECT ADDRESSING NOT IMPLEMENTED")
+            }
+            AddrMode::REL => {
+                unimplemented!("RELATIVE ADDRESSING NOT IMPLEMENTED")
+            }
+            AddrMode::ZPG => {
+                let addr = bytes[1] as u16;
+                addr
+            }
+            AddrMode::ZPGX => {
+                let base_addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
+                let addr = base_addr + self.cpu.X as u16;
+
+                //might incur a cycle penalty if we cross pages
+                let base_page = base_addr & 0xFF00;
+                let final_page = addr & 0xFF00;
+                if base_page != final_page {
+                    self.cycles += 1;
+                }
+
+                addr
+            }
+            AddrMode::ZPGY => {
+                let base_addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
+                let addr = base_addr + self.cpu.Y as u16;
+
+                //might incur a cycle penalty if we cross pages
+                let base_page = base_addr & 0xFF00;
+                let final_page = addr & 0xFF00;
+                if base_page != final_page {
+                    self.cycles += 1;
+                }
+
+                addr
+            }
+            _ => panic!("TRIED TO CALCULATE ADDRESS FOR AN ADDRESSING MODE WITH NO ADDRESS"),
+        };
+    }
+
+    //uses calc_addr func to figure out our effective address, then reads the byte at that addr
+    //takes our stepstring buffer as an arg so it can write debug info into it
+    pub fn get_val(&mut self, bytes: &Vec<u8>, mode: AddrMode, stepstring: &mut String) -> u8 {
+        //NOTE: this is split out as a match case because we need to print different stuff based on
+        // addr mode, otherwise we could just always calc addr and read a byte
+        return match mode {
+            AddrMode::ACC => self.cpu.ACC,
+            AddrMode::ABS => {
+                let addr = self.calc_addr(bytes, AddrMode::ABS);
+                let val = self.cpu.read(addr, &mut self.cart, 1)[0];
+                write!(stepstring, "${:04X} = {:02X}", addr, val).unwrap();
+                val
+            }
+            AddrMode::ABSX => {
+                let addr = self.calc_addr(bytes, AddrMode::ABSX);
+                self.cpu.read(addr, &mut self.cart, 1)[0]
+            }
+            AddrMode::ABSY => {
+                let addr = self.calc_addr(bytes, AddrMode::ABSY);
+                self.cpu.read(addr, &mut self.cart, 1)[0]
+            }
+            AddrMode::IMM => {
+                write!(stepstring, "#${:02X}", bytes[1]).unwrap();
+                bytes[1]
+            }
+            AddrMode::IND => {
+                let addr = self.calc_addr(bytes, AddrMode::IND);
+                self.cpu.read(addr, &mut self.cart, 1)[0]
+            }
+            AddrMode::INDX => {
+                let addr = self.calc_addr(bytes, AddrMode::INDX);
+                self.cpu.read(addr, &mut self.cart, 1)[0]
+            }
+            AddrMode::INDY => {
+                let addr = self.calc_addr(bytes, AddrMode::INDY);
+                self.cpu.read(addr, &mut self.cart, 1)[0]
+            }
+            AddrMode::REL => {
+                let addr = self.calc_addr(bytes, AddrMode::REL);
+                self.cpu.read(addr, &mut self.cart, 1)[0]
+            }
+            AddrMode::ZPG => {
+                let addr = self.calc_addr(bytes, AddrMode::ZPG);
+                let val = self.cpu.read(addr, &mut self.cart, 1)[0];
+                write!(stepstring, "${:02X} = {:02X}", addr as u8, val).unwrap();
+                val
+            }
+            AddrMode::ZPGX => {
+                let addr = self.calc_addr(bytes, AddrMode::ZPGX);
+                let val = self.cpu.read(addr, &mut self.cart, 1)[0];
+                write!(
+                    stepstring,
+                    "${:04X},X @ {:04X} = {:02X}",
+                    (bytes[1] as u16 | (bytes[2] as u16) << 8),
+                    addr,
+                    val
+                )
+                .unwrap();
+
+                val
+            }
+            AddrMode::ZPGY => {
+                let addr = self.calc_addr(bytes, AddrMode::ZPGY);
+                let val = self.cpu.read(addr, &mut self.cart, 1)[0];
+                write!(
+                    stepstring,
+                    "${:04X},X @ {:04X} = {:02X}",
+                    (bytes[1] as u16 | (bytes[2] as u16) << 8),
+                    addr,
+                    val
+                )
+                .unwrap();
+
+                val
+            }
+        };
+    }
+
+    pub fn step(&mut self) -> String {
+        //for debugging, lets build a string to output this step
+        let mut stepstring = String::new();
+
         //print exactly 16 characters composed of:
         // our current addr,
         // the bytes that make up this instr,
         // padding out to 16 chars
         let instr: u8 = self.cpu.read(self.cpu.PC, &mut self.cart, 1)[0];
 
-        //println!("fetching {:04X}, found {instr:02X}", self.cpu.PC);
+        //DEBUG
+        match self.instr_data.instrs.get(&instr) {
+            Some(v) => {}
+            None => {
+                unimplemented!("crashing on unimplemented op: {instr:02x}")
+            }
+        }
 
         let bytes = self.cpu.read(
             self.cpu.PC,
@@ -39,7 +237,12 @@ impl NES {
         let bytes_string = print_bytes(&bytes);
         let padding: String = vec![" "; 16 - (bytes_string.len() + 6)].join("");
 
-        print!("{:04X}  {bytes_string}{padding}", self.cpu.PC);
+        write!(
+            stepstring,
+            "{:04X}  {bytes_string}{padding}{} ",
+            self.cpu.PC, self.instr_data.instrs[&instr].name,
+        )
+        .unwrap();
 
         //simulates full opcode space, including illegal instructions
         match instr {
@@ -54,33 +257,450 @@ impl NES {
                 (indirect,X)	ADC (oper,X)	61	2	6
                 (indirect),Y	ADC (oper),Y	71	2	5* */
             0x69 | 0x65 | 0x75 | 0x6D | 0x7D | 0x79 | 0x61 | 0x71 => {
-                unimplemented!("unimplemented op ADC")
+                let val: u8 = match instr {
+                    0x69 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring),
+                    0x65 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
+                    0x75 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
+                    0x7D => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
+                    0x6D => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
+                    0x79 => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring),
+                    0x61 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring),
+                    0x71 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring),
+                    _ => {
+                        unimplemented!("IN ADC, BUT GOT INVALID OPCODE")
+                    }
+                };
+
+                //ACC = ACC + M + C
+                //NZCV
+                let c: i8 = if self.cpu.SR.C { 1 } else { 0 };
+
+                let res = (self.cpu.ACC as i8).wrapping_add(c).wrapping_add(val as i8);
+
+                self.cpu.SR.N = (res as i8) < 0;
+                self.cpu.SR.Z = res == 0;
+                self.cpu.SR.C = (res as u8) < (self.cpu.ACC as u8);
+                self.cpu.SR.V = ((self.cpu.ACC as i8) < 0 && val < 0 && res >= 0)
+                    || ((self.cpu.ACC as i8) > 0 && val > 0 && res <= 0);
+                /*
+                let a_before: i8 = self.registers.accumulator;
+                let c_before: i8 = if self.registers.status.contains(Status::PS_CARRY) {
+                    1
+                } else {
+                    0
+                };
+                let a_after: i8 = a_before.wrapping_add(c_before).wrapping_add(value);
+
+
+                let did_carry = (result as u8) < (a_before as u8);
+
+                let did_overflow = (a_before < 0 && value < 0 && a_after >= 0)
+                    || (a_before > 0 && value > 0 && a_after <= 0);
+
+                let mask = Status::PS_CARRY | Status::PS_OVERFLOW;
+
+                self.registers.status.set_with_mask(
+                    mask,
+                    Status::new(StatusArgs {
+                        carry: did_carry,
+                        overflow: did_overflow,
+                        ..StatusArgs::none()
+                    }),
+                );
+
+                self.load_accumulator(result);
+
+                debug!("accumulator: {}", self.registers.accumulator);
+                         */
+
+                self.cpu.ACC = res as u8;
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
             }
 
             /*
             AND and (with accumulator)
+                immediate	AND #oper	29	2	2
+                zeropage	AND oper	25	2	3
+                zeropage,X	AND oper,X	35	2	4
+                absolute	AND oper	2D	3	4
+                absolute,X	AND oper,X	3D	3	4*
+                absolute,Y	AND oper,Y	39	3	4*
+                (indirect,X)	AND (oper,X)	21	2	6
+                (indirect),Y	AND (oper),Y	31	2	5* */
+            0x29 | 0x25 | 0x35 | 0x2D | 0x3D | 0x39 | 0x21 | 0x31 => {
+                let val: u8 = match instr {
+                    0x29 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring),
+                    0x25 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
+                    0x35 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
+                    0x2D => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
+                    0x3D => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
+                    0x39 => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring),
+                    0x21 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring),
+                    0x31 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring),
+                    _ => {
+                        panic!("IN AND, BUT GOT INVALID OPCODE")
+                    }
+                };
+
+                self.cpu.ACC &= val;
+
+                self.cpu.SR.N = (self.cpu.ACC as i8) < 0;
+                self.cpu.SR.Z = self.cpu.ACC == 0;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             ASL arithmetic shift left
+
+            //TODO: combine all branch ops into one case
             BCC branch on carry clear
+                relative	BCC oper	90	2	2** */
+            0x90 => {
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+
+                //we always need to compute the target for logging prints
+                let target = self.cpu.PC as i16 + bytes[1] as i16;
+                write!(stepstring, "${target:04X}").unwrap();
+
+                if !self.cpu.SR.C {
+                    let cur_page = self.cpu.PC & 0xFF00;
+                    let target_page = (target as u16) & 0xFF00;
+                    self.cpu.PC = target as u16;
+                    //branch taken always adds a cycle
+                    self.cycles += 1;
+                    //add another cycle if we cross page boundary
+                    if cur_page != target_page {
+                        //println!("branch across page: {cur_page} to {target_page}");
+                        self.cycles += 1
+                    }
+                }
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
             BCS branch on carry set
+                relative	BCS oper	B0	2	2** */
+            0xB0 => {
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+
+                //we always need to compute the target for logging prints
+                let target = self.cpu.PC as i16 + bytes[1] as i16;
+                write!(stepstring, "${target:04X}").unwrap();
+
+                if self.cpu.SR.C {
+                    let cur_page = self.cpu.PC & 0xFF00;
+                    let target_page = (target as u16) & 0xFF00;
+                    self.cpu.PC = target as u16;
+                    //branching always adds a cycle
+                    self.cycles += 1;
+                    //add another cycle if we cross page boundary
+                    if cur_page != target_page {
+                        //println!("branch across page: {cur_page} to {target_page}");
+                        self.cycles += 1
+                    }
+                }
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             BEQ branch on equal (zero set)
+                relative	BEQ oper	F0	2	2** */
+            0xF0 => {
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+
+                //we always need to compute the target for logging prints
+                let target = self.cpu.PC as i16 + bytes[1] as i16;
+                write!(stepstring, "${target:04X}").unwrap();
+
+                if self.cpu.SR.Z {
+                    let cur_page = self.cpu.PC & 0xFF00;
+                    let target_page = (target as u16) & 0xFF00;
+                    self.cpu.PC = target as u16;
+                    //branching always adds a cycle
+                    self.cycles += 1;
+                    //add another cycle if we cross page boundary
+                    if cur_page != target_page {
+                        //println!("branch across page: {cur_page} to {target_page}");
+                        self.cycles += 1
+                    }
+                }
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             BIT bit test
+                zeropage	BIT oper	24	2	3
+                absolute	BIT oper	2C	3	4  */
+            0x24 | 0x2C => {
+                let val: u8 = if instr == 0x24 {
+                    self.get_val(&bytes, AddrMode::ZPG, &mut stepstring)
+                } else {
+                    self.get_val(&bytes, AddrMode::ABS, &mut stepstring)
+                };
+
+                //N = m7
+                self.cpu.SR.N = (val & 0b10000000) >> 7 == 1;
+                //V = m6
+                self.cpu.SR.V = (val & 0b01000000) >> 6 == 1;
+                //Z = ACC and VAL
+                self.cpu.SR.Z = (self.cpu.ACC & val) == 0;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
             BMI branch on minus (negative set)
+                relative	BMI oper	30	2	2** */
+            0x30 => {
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+
+                //we always need to compute the target for logging prints
+                let target = self.cpu.PC as i16 + bytes[1] as i16;
+                write!(stepstring, "${target:04X}").unwrap();
+
+                if self.cpu.SR.N {
+                    let cur_page = self.cpu.PC & 0xFF00;
+                    let target_page = (target as u16) & 0xFF00;
+                    self.cpu.PC = target as u16;
+                    //branching always adds a cycle
+                    self.cycles += 1;
+                    //add another cycle if we cross page boundary
+                    if cur_page != target_page {
+                        self.cycles += 1
+                    }
+                }
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
             BNE branch on not equal (zero clear)
+                relative	BNE oper	D0	2	2**  */
+            0xD0 => {
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+
+                //we always need to compute the target for logging prints
+                let target = self.cpu.PC as i16 + bytes[1] as i16;
+                write!(stepstring, "${target:04X}").unwrap();
+
+                if !self.cpu.SR.Z {
+                    let cur_page = self.cpu.PC & 0xFF00;
+                    let target_page = (target as u16) & 0xFF00;
+                    self.cpu.PC = target as u16;
+                    //branching always adds a cycle
+                    self.cycles += 1;
+                    //add another cycle if we cross page boundary
+                    if cur_page != target_page {
+                        //println!("branch across page: {cur_page} to {target_page}");
+                        self.cycles += 1
+                    }
+                }
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
             BPL branch on plus (negative clear)
+                relative	BPL oper	10	2	2** */
+            0x10 => {
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+
+                //we always need to compute the target for logging prints
+                let target = self.cpu.PC as i16 + bytes[1] as i16;
+                write!(stepstring, "${target:04X}").unwrap();
+
+                if !self.cpu.SR.N {
+                    let cur_page = self.cpu.PC & 0xFF00;
+                    let target_page = (target as u16) & 0xFF00;
+                    self.cpu.PC = target as u16;
+                    //branching always adds a cycle
+                    self.cycles += 1;
+                    //add another cycle if we cross page boundary
+                    if cur_page != target_page {
+                        self.cycles += 1
+                    }
+                }
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             BRK break / interrupt
+                implied	BRK	00	1	7  */
+            //TODO: THIS IS UNTESTED LUL
+            0x00 => {
+                //interrupt,
+                //push PC+2
+                let ra = self.cpu.PC + 2;
+                self.cpu.write(
+                    self.cpu.SP as u16,
+                    &vec![(ra & 0xFF) as u8, (ra & 0xFF00 >> 8) as u8],
+                );
+                self.cpu.SP -= 2;
+                //SR.I = true
+                self.cpu.SR.I = true;
+                //push SR(B = 11)
+                let mut saved_sr = self.cpu.SR;
+                saved_sr.BH = true;
+                saved_sr.BL = true;
+                self.cpu.write(self.cpu.SP as u16, &vec![saved_sr.decode()]);
+                self.cpu.SP -= 1;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             BVC branch on overflow clear
+                relative	BVC oper	50	2	2** */
+            0x50 => {
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+
+                //we always need to compute the target for logging prints
+                let target = self.cpu.PC as i16 + bytes[1] as i16;
+                write!(stepstring, "${target:04X}").unwrap();
+
+                if !self.cpu.SR.V {
+                    let cur_page = self.cpu.PC & 0xFF00;
+                    let target_page = (target as u16) & 0xFF00;
+                    self.cpu.PC = target as u16;
+                    //branching always adds a cycle
+                    self.cycles += 1;
+                    //add another cycle if we cross page boundary
+                    if cur_page != target_page {
+                        //println!("branch across page: {cur_page} to {target_page}");
+                        self.cycles += 1
+                    }
+                }
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             BVS branch on overflow set
+                relative	BVS oper	70	2	2** */
+            0x70 => {
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+
+                //we always need to compute the target for logging prints
+                let target = self.cpu.PC as i16 + bytes[1] as i16;
+                write!(stepstring, "${target:04X}").unwrap();
+
+                if self.cpu.SR.V {
+                    let cur_page = self.cpu.PC & 0xFF00;
+                    let target_page = (target as u16) & 0xFF00;
+                    self.cpu.PC = target as u16;
+                    //branching always adds a cycle
+                    self.cycles += 1;
+                    //add another cycle if we cross page boundary
+                    if cur_page != target_page {
+                        //println!("branch across page: {cur_page} to {target_page}");
+                        self.cycles += 1
+                    }
+                }
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
             CLC clear carry
+                implied	CLC	18	1	2 */
+            0x18 => {
+                self.cpu.SR.C = false;
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
             CLD clear decimal
+                implied	CLD	D8	1	 2*/
+            0xD8 => {
+                self.cpu.SR.D = false;
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
             CLI clear interrupt disable
             CLV clear overflow
+                implied	CLV	B8	1	2  */
+            0xB8 => {
+                self.cpu.SR.V = false;
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             CMP compare (with accumulator)
+                immediate	CMP #oper	C9	2	2
+                zeropage	CMP oper	C5	2	3
+                zeropage,X	CMP oper,X	D5	2	4
+                absolute	CMP oper	CD	3	4
+                absolute,X	CMP oper,X	DD	3	4*
+                absolute,Y	CMP oper,Y	D9	3	4*
+                (indirect,X)	CMP (oper,X)	C1	2	6
+                (indirect),Y	CMP (oper),Y	D1	2	5* */
+            0xC9 | 0xC5 | 0xD5 | 0xCD | 0xDD | 0xD9 | 0xC1 | 0xD1 => {
+                let val: u8 = match instr {
+                    //imm
+                    0xC9 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring),
+                    //zpg
+                    0xC5 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
+                    //zpg,x
+                    0xD5 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
+                    0xCD => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
+                    0xDD => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
+                    0xD9 => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring),
+                    0xC1 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring),
+                    0xD1 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring),
+                    _ => {
+                        unimplemented!("IN CMP BUT GOT ILLEGAL OPCODE")
+                    }
+                };
+
+                //ACC - M DO NOT SAVE
+                let res = self.cpu.ACC - val;
+                //just affects NZC flags
+                self.cpu.SR.N = (res as i8) < 0;
+                self.cpu.SR.Z = res == 0;
+                self.cpu.SR.C = (val as i8) >= (self.cpu.ACC as i8);
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             CPX compare with X
             CPY compare with Y
             DEC decrement
             DEX decrement X
             DEY decrement Y
             EOR exclusive or (with accumulator)
+                immediate	EOR #oper	49	2	2
+                zeropage	EOR oper	45	2	3
+                zeropage,X	EOR oper,X	55	2	4
+                absolute	EOR oper	4D	3	4
+                absolute,X	EOR oper,X	5D	3	4*
+                absolute,Y	EOR oper,Y	59	3	4*
+                (indirect,X)	EOR (oper,X)	41	2	6
+                (indirect),Y	EOR (oper),Y	51	2	5* */
+            0x49 | 0x45 | 0x55 | 0x4D | 0x5D | 0x59 | 0x41 | 0x51 => {
+                let val: u8 = match instr {
+                    0x49 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring),
+                    0x45 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
+                    0x55 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
+                    0x4D => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
+                    0x5D => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
+                    0x59 => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring),
+                    0x41 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring),
+                    0x51 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring),
+                    _ => {
+                        panic!("IN EOR, BUT INVALID OPCODE")
+                    }
+                };
+
+                self.cpu.ACC ^= val;
+
+                self.cpu.SR.N = (self.cpu.ACC as i8) < 0;
+                self.cpu.SR.Z = self.cpu.ACC == 0;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             INC increment
             INX increment X
             INY increment Y
@@ -88,28 +708,84 @@ impl NES {
                 absolute	JMP oper	4C	3	3
                 indirect	JMP (oper)	6C	3	5*/
             0x4C | 0x6C => {
-                //print opcode name
-                print!("{} ", self.instr_data.instrs[&instr].name);
                 let target: u16 = if instr == 0x4C {
                     let imm = bytes[1] as u16 | (bytes[2] as u16) << 8;
-                    print!("${imm:04X}                       ");
+                    write!(stepstring, "${imm:04X}").unwrap();
                     imm
                 } else {
                     let addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
                     let bytes = self.cpu.read(addr, &mut self.cart, 2);
                     let val = bytes[1] as u16 | (bytes[2] as u16) << 8;
-                    //JMP ($0200) = DB7E
-                    print!("(${addr:04X}) = {val:04X}              ");
+                    write!(stepstring, "(${addr:04X}) = {val:04X}").unwrap();
                     val
                 };
 
                 self.cpu.PC = target;
                 self.cycles += self.instr_data.instrs[&instr].cycles as u128;
-                println!("{} CYC:{}", self.cpu, self.cycles);
             }
             /*
             JSR jump subroutine
+                absolute	JSR oper	20	3	6  */
+            0x20 => {
+                //why the fuck does the 6502 use an empty stack >:(
+                //push ra
+                let addr = self.cpu.SP as u16;
+                let ra = self.cpu.PC + 2;
+                let ral = (ra & 0xFF) as u8;
+                let rah = ((ra >> 8) & 0xFF) as u8;
+                self.cpu.write(addr, &[ral, rah].to_vec());
+                self.cpu.SP -= 2;
+                //set pc to target addr
+                let target = bytes[1] as u16 | (bytes[2] as u16) << 8;
+                self.cpu.PC = target;
+
+                write!(stepstring, "${target:04X}").unwrap();
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             LDA load accumulator
+                immediate	LDA #oper	A9	2	2
+                zeropage	LDA oper	A5	2	3
+                zeropage,X	LDA oper,X	B5	2	4
+                absolute	LDA oper	AD	3	4
+                absolute,X	LDA oper,X	BD	3	4*
+                absolute,Y	LDA oper,Y	B9	3	4*
+                (indirect,X)	LDA (oper,X)	A1	2	6
+                (indirect),Y	LDA (oper),Y	B1	2	5* */
+            0xA9 | 0xA5 | 0xB5 | 0xAD | 0xBD | 0xB9 | 0xA1 | 0xB1 => {
+                let val: u8 = match instr {
+                    //imm
+                    0xA9 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring),
+                    //zeropage
+                    0xA5 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
+                    //zeropage,x
+                    0xB5 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
+                    //abs
+                    0xAD => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
+                    //abs,x
+                    0xBD => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
+                    //abs,y
+                    0xB9 => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring),
+                    //(indirect,X)
+                    0xA1 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring),
+                    //(indirect),Y
+                    0xB1 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring),
+                    _ => {
+                        panic!("IN LDA, BUT SOMEHOW GOT INVALID OP")
+                    }
+                };
+
+                self.cpu.ACC = val;
+
+                self.cpu.SR.N = (val as i8) < 0;
+                self.cpu.SR.Z = val == 0;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             LDX load X
                 immediate	LDX #oper	A2	2	2
                 zeropage	LDX oper	A6	2	3
@@ -117,37 +793,13 @@ impl NES {
                 absolute	LDX oper	AE	3	4
                 absolute,Y	LDX oper,Y	BE	3	4* */
             0xA2 | 0xA6 | 0xB6 | 0xAE | 0xBE => {
-                print!("{} ", self.instr_data.instrs[&instr].name);
                 let val = match instr {
-                    0xA2 => {
-                        print!("#${:02X}                        ", bytes[1]);
-                        bytes[1]
-                    }
-                    0xA6 => {
-                        let addr = 0 as u16 | bytes[1] as u16;
-                        self.cpu.read(addr, &mut self.cart, 1)[0]
-                    }
-                    0xB6 => {
-                        let mut addr = 0 as u16 | bytes[1] as u16;
-                        addr += self.cpu.Y as u16;
-                        self.cpu.read(addr, &mut self.cart, 1)[0]
-                    }
-                    0xAE => {
-                        let addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
-                        self.cpu.read(addr, &mut self.cart, 1)[0]
-                    }
-                    0xBE => {
-                        let mut addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
-                        let init_page = addr % 256;
-                        addr += self.cpu.Y as u16;
-                        let final_page = addr % 256;
-                        //if we cross a page boundary with indexing, add a cycle
-                        if init_page != final_page {
-                            self.cycles += 1;
-                        }
-                        self.cpu.read(addr, &mut self.cart, 1)[0]
-                    }
-                    _ => 0,
+                    0xA2 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring),
+                    0xA6 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
+                    0xB6 => self.get_val(&bytes, AddrMode::ZPGY, &mut stepstring),
+                    0xAE => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
+                    0xBE => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring),
+                    _ => unimplemented!("IN LDX, BUT GOT BAD OP"),
                 };
 
                 //actual loading
@@ -161,47 +813,232 @@ impl NES {
                 self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
 
                 self.cycles += self.instr_data.instrs[&instr].cycles as u128;
-
-                //print cpu state after executing this operation
-                println!("{} CYC:{}", self.cpu, self.cycles);
             }
 
             /*
             LDY load Y
             LSR logical shift right
             NOP no operation
+                implied	NOP	EA	1	2 */
+            0xEA => {
+                self.cpu.PC += 1;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
             ORA or with accumulator
+                immediate	ORA #oper	09	2	2
+                zeropage	ORA oper	05	2	3
+                zeropage,X	ORA oper,X	15	2	4
+                absolute	ORA oper	0D	3	4
+                absolute,X	ORA oper,X	1D	3	4*
+                absolute,Y	ORA oper,Y	19	3	4*
+                (indirect,X)	ORA (oper,X)	01	2	6
+                (indirect),Y	ORA (oper),Y	11	2	5* */
+            0x09 | 0x05 | 0x15 | 0x0D | 0x1D | 0x19 | 0x01 | 0x11 => {
+                let val: u8 = match instr {
+                    0x09 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring),
+                    0x05 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
+                    //zeropage,x
+                    0x15 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
+                    //abs
+                    0x0D => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
+                    //abs,x
+                    0x1D => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
+                    //abs y
+                    0x19 => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring),
+                    0x01 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring),
+                    0x11 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring),
+                    _ => {
+                        panic!("IN OR, BUT GOT INVALID OPCODE")
+                    }
+                };
+
+                self.cpu.ACC |= val;
+
+                self.cpu.SR.N = (self.cpu.ACC as i8) < 0;
+                self.cpu.SR.Z = self.cpu.ACC == 0;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
             PHA push accumulator
+                implied	PHA	48	1	3 */
+            0x48 => {
+                //push ACC (B =  11)
+                self.cpu.write(self.cpu.SP as u16, &vec![self.cpu.ACC]);
+                self.cpu.SP -= 1;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             PHP push processor status (SR)
+                implied	PHP	08	1	3  */
+            0x08 => {
+                //push SR (B =  11)
+                let mut saved_sr = self.cpu.SR;
+                saved_sr.BH = true;
+                saved_sr.BL = true;
+
+                self.cpu.write(self.cpu.SP as u16, &vec![saved_sr.decode()]);
+                self.cpu.SP -= 1;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             PLA pull accumulator
+                implied	PLA	68	1	4  */
+            0x68 => {
+                self.cpu.SP += 1;
+                self.cpu.ACC = self.cpu.read(self.cpu.SP as u16, &mut self.cart, 1)[0];
+
+                self.cpu.SR.N = (self.cpu.ACC as i8) < 0;
+                self.cpu.SR.Z = self.cpu.ACC == 0;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             PLP pull processor status (SR)
+                implied	PLP	28	1	4 */
+            0x28 => {
+                self.cpu.SP += 1;
+                let pulled = self.cpu.read(self.cpu.SP as u16, &mut self.cart, 1)[0];
+                let old_bh = self.cpu.SR.BH;
+                let old_bl = self.cpu.SR.BL;
+
+                self.cpu.SR.encode(pulled);
+                self.cpu.SR.BH = old_bh;
+                self.cpu.SR.BL = old_bl;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             ROL rotate left
             ROR rotate right
             RTI return from interrupt
             RTS return from subroutine
+                implied	RTS	60	1	6  */
+            0x60 => {
+                //pull PC, PC+1 -> PC
+                self.cpu.SP += 2;
+                let pull = self.cpu.read((self.cpu.SP as u16), &mut self.cart, 2);
+                let new_pc = pull[0] as u16 | (pull[1] as u16) << 8;
+                self.cpu.PC = new_pc;
+
+                self.cpu.PC += 1;
+
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
             SBC subtract with carry
             SEC set carry
+                implied	SEC	38	1	2 */
+            0x38 => {
+                self.cpu.SR.C = true;
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
             SED set decimal
+                implied	SED	F8	1	2  */
+            0xF8 => {
+                self.cpu.SR.D = true;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
             SEI set interrupt disable
+                implied	SEI	78	1	2  */
+            0x78 => {
+                self.cpu.SR.I = true;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             STA store accumulator
+                zeropage	STA oper	85	2	3
+                zeropage,X	STA oper,X	95	2	4
+                absolute	STA oper	8D	3	4
+                absolute,X	STA oper,X	9D	3	5
+                absolute,Y	STA oper,Y	99	3	5
+                (indirect,X)	STA (oper,X)	81	2	6
+                (indirect),Y	STA (oper),Y	91	2	6  */
+            0x85 | 0x95 | 0x8D | 0x9D | 0x99 | 0x81 | 0x91 => {
+                //NOTE: what a stupid fucking log
+                //LDA $addr = val is WHAT IS CURRENTLY AT THAT ADDR BEFORE OUR STORE???
+                let addr: u16 = match instr {
+                    0x85 => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPG);
+                        write!(
+                            stepstring,
+                            "${:02x} = {:02X}",
+                            addr,
+                            self.cpu.read(addr, &mut self.cart, 1)[0]
+                        )
+                        .unwrap();
+                        addr
+                    }
+                    0x95 => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPGX);
+                        addr
+                    }
+                    0x8D => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ABS);
+                        addr
+                    }
+                    0x9D => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ABSX);
+                        addr
+                    }
+                    0x99 => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ABSY);
+                        addr
+                    }
+                    0x81 => {
+                        let addr = self.calc_addr(&bytes, AddrMode::INDX);
+                        addr
+                    }
+                    0x91 => {
+                        let addr = self.calc_addr(&bytes, AddrMode::INDY);
+                        addr
+                    }
+                    _ => {
+                        panic!("IN STA BUT INVALID OP")
+                    }
+                };
+
+                self.cpu.write(addr, &vec![self.cpu.ACC]);
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             STX store X
                 zeropage	STX oper	86	2	3
                 zeropage,Y	STX oper,Y	96	2	4
                 absolute	STX oper	8E	3	4  */
             0x86 | 0x96 | 0x8E => {
-                print!("{} ", self.instr_data.instrs[&instr].name);
                 let addr = if instr == 0x86 {
-                    let addr = 0 as u16 | bytes[1] as u16;
-                    print!("${:02X} = {:02X}                    ", addr, self.cpu.X);
+                    let addr = self.calc_addr(&bytes, AddrMode::ZPG);
+                    write!(stepstring, "${:02X} = {:02X}", addr, self.cpu.X).unwrap();
                     addr
                 } else if instr == 0x96 {
-                    let mut addr = 0 as u16 | bytes[1] as u16;
-                    addr += self.cpu.Y as u16;
-                    //STX $80,Y @ 7F = 00
-                    //print!("$")
+                    let addr = self.calc_addr(&bytes, AddrMode::ZPGY);
                     addr
                 } else {
-                    let addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
+                    let addr = self.calc_addr(&bytes, AddrMode::ABS);
                     addr
                 };
 
@@ -210,8 +1047,6 @@ impl NES {
                 self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
 
                 self.cycles += self.instr_data.instrs[&instr].cycles as u128;
-
-                println!("{} CYC:{}", self.cpu, self.cycles);
             }
 
             /*
@@ -227,6 +1062,16 @@ impl NES {
                 panic!("unimplemented op {:#02x}", instr)
             }
         }
+        //print padding and then cpu state and cycles
+        let final_padding = vec![" "; 48 - stepstring.len()].join("");
+        write!(
+            stepstring,
+            "{final_padding}{} CYC:{}",
+            self.cpu, self.cycles
+        )
+        .unwrap();
+        println!("{stepstring}");
+        return stepstring;
     }
 }
 

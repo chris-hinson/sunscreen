@@ -1,5 +1,7 @@
 use std::fs;
 
+use pretty_assertions::{assert_eq, assert_ne};
+
 mod cart;
 mod cpu;
 mod instr;
@@ -11,7 +13,12 @@ use nes::NES;
 fn main() {
     //println!("rust emu go brrrr");
 
-    //beep boop we just want to pass nestest
+    let good_log = "./test-roms/nestest-redux/nestest_cpu_relined.log";
+    let log_file = fs::read_to_string(good_log).expect("log file not found");
+    let mut log = log_file.split("\n").collect::<Vec<&str>>();
+    //we dont need to check initial state
+    log.remove(0);
+
     let filename = "./test-roms/nestest/nestest.nes";
     let rom_file = fs::read(filename).expect("file not found!");
 
@@ -30,8 +37,7 @@ fn main() {
     );
 
     //run one step of our system
-    //TODO: this is so fucking hacky lmao
-    while nes.cycles < 26554 {
-        nes.step();
+    for line in log {
+        assert_eq!(nes.step(), line);
     }
 }

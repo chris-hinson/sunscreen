@@ -38,7 +38,7 @@ impl fmt::Display for Cpu {
 }
 
 #[allow(non_snake_case)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 //status register struct
 pub struct SR {
     pub N: bool,
