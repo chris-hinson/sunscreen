@@ -1,3 +1,5 @@
+#![feature(bigint_helper_methods)]
+
 use std::fs;
 
 use pretty_assertions::{assert_eq, assert_ne};

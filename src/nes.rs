@@ -271,49 +271,27 @@ impl NES {
                     }
                 };
 
+                let old_acc = self.cpu.ACC;
+
                 //ACC = ACC + M + C
                 //NZCV
-                let c: i8 = if self.cpu.SR.C { 1 } else { 0 };
+                let c: u8 = if self.cpu.SR.C { 1 } else { 0 };
 
-                let res = (self.cpu.ACC as i8).wrapping_add(c).wrapping_add(val as i8);
+                let res_one = (self.cpu.ACC as i8).overflowing_add(val as i8);
+                //println!("res one: {:02X} + {:02X} = {res_one:?}", self.cpu.ACC, val);
+                let res_two = res_one.0.overflowing_add(c as i8);
+                //println!("res two: {:02X} + {:02X} =  {res_two:?}", res_one.0, c);
 
-                self.cpu.SR.N = (res as i8) < 0;
-                self.cpu.SR.Z = res == 0;
-                self.cpu.SR.C = (res as u8) < (self.cpu.ACC as u8);
-                self.cpu.SR.V = ((self.cpu.ACC as i8) < 0 && val < 0 && res >= 0)
-                    || ((self.cpu.ACC as i8) > 0 && val > 0 && res <= 0);
-                /*
-                let a_before: i8 = self.registers.accumulator;
-                let c_before: i8 = if self.registers.status.contains(Status::PS_CARRY) {
-                    1
-                } else {
-                    0
-                };
-                let a_after: i8 = a_before.wrapping_add(c_before).wrapping_add(value);
+                //set the actual Result
+                self.cpu.ACC = res_two.0 as u8;
 
+                self.cpu.SR.N = (self.cpu.ACC as i8) < 0;
+                self.cpu.SR.Z = self.cpu.ACC == 0;
+                //NOTE: THIS METHOD REQUIRES NIGHTLY. FIND A WAY TO DO WITHOUT?
+                //self.cpu.SR.C = (self.cpu.ACC as u8) < (old_acc as u8);
+                self.cpu.SR.C = old_acc.carrying_add(val, self.cpu.SR.C).1;
+                self.cpu.SR.V = res_one.1 || res_two.1;
 
-                let did_carry = (result as u8) < (a_before as u8);
-
-                let did_overflow = (a_before < 0 && value < 0 && a_after >= 0)
-                    || (a_before > 0 && value > 0 && a_after <= 0);
-
-                let mask = Status::PS_CARRY | Status::PS_OVERFLOW;
-
-                self.registers.status.set_with_mask(
-                    mask,
-                    Status::new(StatusArgs {
-                        carry: did_carry,
-                        overflow: did_overflow,
-                        ..StatusArgs::none()
-                    }),
-                );
-
-                self.load_accumulator(result);
-
-                debug!("accumulator: {}", self.registers.accumulator);
-                         */
-
-                self.cpu.ACC = res as u8;
                 self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
                 self.cycles += self.instr_data.instrs[&instr].cycles as u128;
             }
@@ -650,12 +628,15 @@ impl NES {
                     }
                 };
 
-                //ACC - M DO NOT SAVE
-                let res = self.cpu.ACC - val;
+                //ACC - M (DO NOT SAVE)
+                let res = self.cpu.ACC.wrapping_sub(val);
                 //just affects NZC flags
                 self.cpu.SR.N = (res as i8) < 0;
                 self.cpu.SR.Z = res == 0;
-                self.cpu.SR.C = (val as i8) >= (self.cpu.ACC as i8);
+
+                //TODO: shouldnt this be the other way around????
+                //println!("CMP: {:02X} - {:02X} = {res:02X}", self.cpu.ACC, val);
+                self.cpu.SR.C = self.cpu.ACC >= val;
 
                 self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
                 self.cycles += self.instr_data.instrs[&instr].cycles as u128;
@@ -663,7 +644,59 @@ impl NES {
 
             /*
             CPX compare with X
+                immediate	CPX #oper	E0	2	2
+                zeropage	CPX oper	E4	2	3
+                absolute	CPX oper	EC	3	4  */
+            0xE0 | 0xE4 | 0xEC => {
+                let val: u8 = match instr {
+                    0xE0 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring),
+                    0xE4 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
+                    0xEC => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
+                    _ => panic!("IN CPX BUT GOT BAD OPCODE"),
+                };
+
+                //X - M (DO NOT SAVE)
+                let res = self.cpu.X.wrapping_sub(val);
+                //just affects NZC flags
+                self.cpu.SR.N = (res as i8) < 0;
+                self.cpu.SR.Z = res == 0;
+
+                //TODO: shouldnt this be the other way around????
+                //println!("CMP: {:02X} - {:02X} = {res:02X}", self.cpu.ACC, val);
+                self.cpu.SR.C = self.cpu.X >= val;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             CPY compare with Y
+                immediate	CPY #oper	C0	2	2
+                zeropage	CPY oper	C4	2	3
+                absolute	CPY oper	CC	3	4  */
+            0xC0 | 0xC4 | 0xCC => {
+                let val: u8 = match instr {
+                    0xC0 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring),
+                    0xC4 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
+                    0xCC => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
+                    _ => panic!("IN CPX BUT GOT BAD OPCODE"),
+                };
+
+                //X - M (DO NOT SAVE)
+                let res = self.cpu.Y.wrapping_sub(val);
+                //just affects NZC flags
+                self.cpu.SR.N = (res as i8) < 0;
+                self.cpu.SR.Z = res == 0;
+
+                //TODO: shouldnt this be the other way around????
+                //println!("CMP: {:02X} - {:02X} = {res:02X}", self.cpu.ACC, val);
+                self.cpu.SR.C = self.cpu.Y >= val;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             DEC decrement
             DEX decrement X
             DEY decrement Y
@@ -799,7 +832,7 @@ impl NES {
                     0xB6 => self.get_val(&bytes, AddrMode::ZPGY, &mut stepstring),
                     0xAE => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
                     0xBE => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring),
-                    _ => unimplemented!("IN LDX, BUT GOT BAD OP"),
+                    _ => panic!("IN LDX, BUT GOT BAD OP"),
                 };
 
                 //actual loading
@@ -817,6 +850,34 @@ impl NES {
 
             /*
             LDY load Y
+                immediate	LDY #oper	A0	2	2
+                zeropage	LDY oper	A4	2	3
+                zeropage,X	LDY oper,X	B4	2	4
+                absolute	LDY oper	AC	3	4
+                absolute,X	LDY oper,X	BC	3	4*  */
+            0xA0 | 0xA4 | 0xB4 | 0xAC | 0xBC => {
+                let val = match instr {
+                    0xA0 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring),
+                    0xA4 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
+                    0xB4 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
+                    0xAC => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
+                    0xBC => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
+                    _ => panic!("IN LDY BUT GOT BAD OPCODE"),
+                };
+
+                //actual loading
+                self.cpu.Y = val;
+
+                //set flags
+                self.cpu.SR.N = (val as i8) < 0;
+                self.cpu.SR.Z = val == 0;
+
+                //update PC
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             LSR logical shift right
             NOP no operation
                 implied	NOP	EA	1	2 */
@@ -939,6 +1000,33 @@ impl NES {
             }
             /*
             SBC subtract with carry
+                immediate	SBC #oper	E9	2	2
+                zeropage	SBC oper	E5	2	3
+                zeropage,X	SBC oper,X	F5	2	4
+                absolute	SBC oper	ED	3	4
+                absolute,X	SBC oper,X	FD	3	4*
+                absolute,Y	SBC oper,Y	F9	3	4*
+                (indirect,X)	SBC (oper,X)	E1	2	6
+                (indirect),Y	SBC (oper),Y	F1	2	5* */
+            0xE9 | 0xE5 | 0xF5 | 0xED | 0xFD | 0xF9 | 0xE1 | 0xF1 => {
+                let val: u8 = match instr {
+                    0xE9 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring),
+                    0xE5 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
+                    0xF5 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
+                    0xED => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
+                    0xFD => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
+                    0xF9 => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring),
+                    0xE1 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring),
+                    0xF1 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring),
+                    _ => panic!("IN SBC BUT GOT BAD OPCODE"),
+                };
+
+                //A - M - C -> A
+                //NZCV
+                //fuck
+            }
+
+            /*
             SEC set carry
                 implied	SEC	38	1	2 */
             0x38 => {

@@ -116,7 +116,6 @@ impl Instr {
             (0x01, InstrData::new("ORA", 2, 6)),
             (0x11, InstrData::new("ORA", 2, 5)),
             (0xB8, InstrData::new("CLV", 1, 2)),
-
             (0x49, InstrData::new("EOR", 2, 2)),
             (0x45, InstrData::new("EOR", 2, 3)),
             (0x55, InstrData::new("EOR", 2, 4)),
@@ -125,6 +124,27 @@ impl Instr {
             (0x59, InstrData::new("EOR", 3, 4)),
             (0x41, InstrData::new("EOR", 2, 6)),
             (0x51, InstrData::new("EOR", 2, 5)),
+            (0xA0, InstrData::new("LDY", 2, 2)),
+            (0xA4, InstrData::new("LDY", 2, 3)),
+            (0xB4, InstrData::new("LDY", 2, 4)),
+            (0xAC, InstrData::new("LDY", 3, 4)),
+            (0xBC, InstrData::new("LDY", 3, 4)),
+            (0xE0, InstrData::new("CPX", 2, 2)),
+            (0xE4, InstrData::new("CPX", 2, 3)),
+            (0xEC, InstrData::new("CPX", 3, 4)),
+            (0xC0, InstrData::new("CPY", 2, 2)),
+            (0xC4, InstrData::new("CPY", 2, 3)),
+            (0xCC, InstrData::new("CPY", 3, 4)),
+
+            (0xE9, InstrData::new("SBC", 2, 2)),
+            (0xE9, InstrData::new("SBC", 2, 3)),
+            (0xE9, InstrData::new("SBC", 2, 4)),
+            (0xE9, InstrData::new("SBC", 3, 4)),
+            (0xE9, InstrData::new("SBC", 3, 4)),
+            (0xE9, InstrData::new("SBC", 3, 4)),
+            (0xE9, InstrData::new("SBC", 2, 6)),
+            (0xE9, InstrData::new("SBC", 2, 5)),
+
         ]);
 
         Instr { instrs: map }
