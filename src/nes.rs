@@ -1023,7 +1023,29 @@ impl NES {
 
                 //A - M - C -> A
                 //NZCV
-                //fuck
+
+                let old_acc = self.cpu.ACC;
+
+                //NZCV
+                let c: u8 = if self.cpu.SR.C { 1 } else { 0 };
+
+                let res_one = (self.cpu.ACC as i8).overflowing_sub(val as i8);
+                //println!("res one: {:02X} + {:02X} = {res_one:?}", self.cpu.ACC, val);
+                let res_two = res_one.0.overflowing_sub(c as i8);
+                //println!("res two: {:02X} + {:02X} =  {res_two:?}", res_one.0, c);
+
+                //set the actual Result
+                self.cpu.ACC = res_two.0 as u8;
+
+                self.cpu.SR.N = (self.cpu.ACC as i8) < 0;
+                self.cpu.SR.Z = self.cpu.ACC == 0;
+                //NOTE: THIS METHOD REQUIRES NIGHTLY. FIND A WAY TO DO WITHOUT?
+                //self.cpu.SR.C = (self.cpu.ACC as u8) < (old_acc as u8);
+                self.cpu.SR.C = old_acc.borrowing_sub(val, self.cpu.SR.C).1;
+                self.cpu.SR.V = res_one.1 || res_two.1;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
             }
 
             /*
