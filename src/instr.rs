@@ -21,6 +21,8 @@ impl InstrData {
 pub struct Instr {
     //hashmap of opcode to instr data
     //TODO: could instead use a vec ordered by opcode for constant lookup
+    //later note: hashmap is already constant lookup lol? might look neater as a vec tho.
+    //look at peachy's crystal emulator
     pub instrs: HashMap<u8, InstrData>,
 }
 
@@ -135,16 +137,24 @@ impl Instr {
             (0xC0, InstrData::new("CPY", 2, 2)),
             (0xC4, InstrData::new("CPY", 2, 3)),
             (0xCC, InstrData::new("CPY", 3, 4)),
-
             (0xE9, InstrData::new("SBC", 2, 2)),
-            (0xE9, InstrData::new("SBC", 2, 3)),
-            (0xE9, InstrData::new("SBC", 2, 4)),
-            (0xE9, InstrData::new("SBC", 3, 4)),
-            (0xE9, InstrData::new("SBC", 3, 4)),
-            (0xE9, InstrData::new("SBC", 3, 4)),
-            (0xE9, InstrData::new("SBC", 2, 6)),
-            (0xE9, InstrData::new("SBC", 2, 5)),
-
+            (0xE5, InstrData::new("SBC", 2, 3)),
+            (0xF5, InstrData::new("SBC", 2, 4)),
+            (0xED, InstrData::new("SBC", 3, 4)),
+            (0xFD, InstrData::new("SBC", 3, 4)),
+            (0xF9, InstrData::new("SBC", 3, 4)),
+            (0xE1, InstrData::new("SBC", 2, 6)),
+            (0xF1, InstrData::new("SBC", 2, 5)),
+            (0xE8, InstrData::new("INX", 1, 2)),
+            (0xC8, InstrData::new("INY", 1, 2)),
+            (0xCA, InstrData::new("DEX", 1, 2)),
+            (0x88, InstrData::new("DEY", 1, 2)),
+            (0xAA, InstrData::new("TAX", 1, 2)),
+            (0xA8, InstrData::new("TAY", 1, 2)),
+            (0xBA, InstrData::new("TSX", 1, 2)),
+            (0x8A, InstrData::new("TXA", 1, 2)),
+            (0x9A, InstrData::new("TXS", 1, 2)),
+            (0x98, InstrData::new("TYA", 1, 2)),
         ]);
 
         Instr { instrs: map }

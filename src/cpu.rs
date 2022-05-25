@@ -1,5 +1,4 @@
 use crate::cart::Cart;
-use std::collections::HashMap;
 use std::fmt;
 
 #[allow(non_snake_case)]

@@ -223,7 +223,7 @@ impl NES {
 
         //DEBUG
         match self.instr_data.instrs.get(&instr) {
-            Some(v) => {}
+            Some(_v) => {}
             None => {
                 unimplemented!("crashing on unimplemented op: {instr:02x}")
             }
@@ -699,7 +699,30 @@ impl NES {
             /*
             DEC decrement
             DEX decrement X
+                implied	DEX	CA	1	2   */
+            0xCA => {
+                self.cpu.X = self.cpu.X.wrapping_sub(1);
+
+                self.cpu.SR.N = (self.cpu.X as i8) < 0;
+                self.cpu.SR.Z = self.cpu.X == 0;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
             DEY decrement Y
+                implied	DEY	88	1	2   */
+            0x88 => {
+                self.cpu.Y = self.cpu.Y.wrapping_sub(1);
+
+                self.cpu.SR.N = (self.cpu.Y as i8) < 0;
+                self.cpu.SR.Z = self.cpu.Y == 0;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             EOR exclusive or (with accumulator)
                 immediate	EOR #oper	49	2	2
                 zeropage	EOR oper	45	2	3
@@ -736,7 +759,29 @@ impl NES {
             /*
             INC increment
             INX increment X
+                X + 1 -> X */
+            0xE8 => {
+                self.cpu.X = self.cpu.X.wrapping_add(1);
+
+                self.cpu.SR.N = (self.cpu.X as i8) < 0;
+                self.cpu.SR.Z = self.cpu.X == 0;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
             INY increment Y
+                Y + 1 -> Y */
+            0xC8 => {
+                self.cpu.Y = self.cpu.Y.wrapping_add(1);
+
+                self.cpu.SR.N = (self.cpu.Y as i8) < 0;
+                self.cpu.SR.Z = self.cpu.Y == 0;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
             JMP jump
                 absolute	JMP oper	4C	3	3
                 indirect	JMP (oper)	6C	3	5*/
@@ -990,7 +1035,7 @@ impl NES {
             0x60 => {
                 //pull PC, PC+1 -> PC
                 self.cpu.SP += 2;
-                let pull = self.cpu.read((self.cpu.SP as u16), &mut self.cart, 2);
+                let pull = self.cpu.read(self.cpu.SP as u16, &mut self.cart, 2);
                 let new_pc = pull[0] as u16 | (pull[1] as u16) << 8;
                 self.cpu.PC = new_pc;
 
@@ -1024,25 +1069,17 @@ impl NES {
                 //A - M - C -> A
                 //NZCV
 
-                let old_acc = self.cpu.ACC;
+                //shoutout kamiyaowl's rust nes emulator for this one
+                let sub1 = self.cpu.ACC.overflowing_sub(val);
+                let sub2 = sub1.0.overflowing_sub(if self.cpu.SR.C { 0 } else { 1 });
 
-                //NZCV
-                let c: u8 = if self.cpu.SR.C { 1 } else { 0 };
+                self.cpu.SR.Z = sub2.0 == 0;
+                self.cpu.SR.N = (sub2.0 as i8) < 0;
+                self.cpu.SR.C = !(sub1.1 || sub2.1);
+                self.cpu.SR.V = (((self.cpu.ACC ^ val) & 0x80) == 0x80)
+                    && (((self.cpu.ACC ^ sub2.0) & 0x80) == 0x80);
 
-                let res_one = (self.cpu.ACC as i8).overflowing_sub(val as i8);
-                //println!("res one: {:02X} + {:02X} = {res_one:?}", self.cpu.ACC, val);
-                let res_two = res_one.0.overflowing_sub(c as i8);
-                //println!("res two: {:02X} + {:02X} =  {res_two:?}", res_one.0, c);
-
-                //set the actual Result
-                self.cpu.ACC = res_two.0 as u8;
-
-                self.cpu.SR.N = (self.cpu.ACC as i8) < 0;
-                self.cpu.SR.Z = self.cpu.ACC == 0;
-                //NOTE: THIS METHOD REQUIRES NIGHTLY. FIND A WAY TO DO WITHOUT?
-                //self.cpu.SR.C = (self.cpu.ACC as u8) < (old_acc as u8);
-                self.cpu.SR.C = old_acc.borrowing_sub(val, self.cpu.SR.C).1;
-                self.cpu.SR.V = res_one.1 || res_two.1;
+                self.cpu.ACC = sub2.0;
 
                 self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
                 self.cycles += self.instr_data.instrs[&instr].cycles as u128;
@@ -1140,34 +1177,101 @@ impl NES {
                 zeropage,Y	STX oper,Y	96	2	4
                 absolute	STX oper	8E	3	4  */
             0x86 | 0x96 | 0x8E => {
+                //note: for some fucking reason, the log wants us to say what is at that address
+                //BEFORE we write to it
                 let addr = if instr == 0x86 {
                     let addr = self.calc_addr(&bytes, AddrMode::ZPG);
-                    write!(stepstring, "${:02X} = {:02X}", addr, self.cpu.X).unwrap();
+                    let cur_val = self.cpu.read(addr, &mut self.cart, 1)[0];
+                    write!(stepstring, "${:02X} = {:02X}", addr, cur_val).unwrap();
                     addr
                 } else if instr == 0x96 {
                     let addr = self.calc_addr(&bytes, AddrMode::ZPGY);
                     addr
                 } else {
                     let addr = self.calc_addr(&bytes, AddrMode::ABS);
+                    let cur_val = self.cpu.read(addr, &mut self.cart, 1)[0];
+                    write!(stepstring, "${:04X} = {:02X}", addr, cur_val).unwrap();
                     addr
                 };
 
                 self.cpu.write(addr, &[self.cpu.X].to_vec());
 
                 self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
-
                 self.cycles += self.instr_data.instrs[&instr].cycles as u128;
             }
 
             /*
             STY store Y
             TAX transfer accumulator to X
+                implied	TAX	AA	1	2  */
+            0xAA => {
+                self.cpu.X = self.cpu.ACC;
+
+                self.cpu.SR.N = (self.cpu.X as i8) < 0;
+                self.cpu.SR.Z = self.cpu.X == 0;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
             TAY transfer accumulator to Y
+                implied	TAY	A8	1	2  */
+            0xA8 => {
+                self.cpu.Y = self.cpu.ACC;
+
+                self.cpu.SR.N = (self.cpu.Y as i8) < 0;
+                self.cpu.SR.Z = self.cpu.Y == 0;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
             TSX transfer stack pointer to X
+                implied	TSX	BA	1	2   */
+            0xBA => {
+                self.cpu.X = self.cpu.SP;
+
+                self.cpu.SR.N = (self.cpu.SP as i8) < 0;
+                self.cpu.SR.Z = self.cpu.SP == 0;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
             TXA transfer X to accumulator
+                implied	TXA	8A	1	2  */
+            0x8A => {
+                self.cpu.ACC = self.cpu.X;
+
+                self.cpu.SR.N = (self.cpu.ACC as i8) < 0;
+                self.cpu.SR.Z = self.cpu.ACC == 0;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
             TXS transfer X to stack pointer
+                implied	TXS	9A	1	2 */
+            0x9A => {
+                //NO FLAGS SET
+
+                self.cpu.SP = self.cpu.X;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
             TYA transfer Y to accumulator
-            */
+                implied	TYA	98	1	2  */
+            0x98 => {
+                self.cpu.ACC = self.cpu.Y;
+
+                self.cpu.SR.N = (self.cpu.ACC as i8) < 0;
+                self.cpu.SR.Z = self.cpu.ACC == 0;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
             _ => {
                 panic!("unimplemented op {:#02x}", instr)
             }
