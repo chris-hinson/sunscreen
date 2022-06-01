@@ -14,14 +14,14 @@ use cpu::Cpu;
 use nes::NES;
 
 fn main() {
-    //println!("rust emu go brrrr");
-
+    //loading our log
     let good_log = "./test-roms/nestest-redux/nestest_cpu_relined.log";
     let log_file = fs::read_to_string(good_log).expect("log file not found");
     let mut log = log_file.split("\n").collect::<Vec<&str>>();
     //we dont need to check initial state
     log.remove(0);
 
+    //load our rom
     let filename = "./test-roms/nestest/nestest.nes";
     let rom_file = fs::read(filename).expect("file not found!");
 
@@ -34,10 +34,10 @@ fn main() {
 
     //make our full system
     let mut nes = NES::new(cpu, cart);
-    println!(
+    /*println!(
         "intial state (following reset vector)           {} CYC:{}",
         nes.cpu, nes.cycles
-    );
+    );*/
 
     //run one step of our system
     for line in log {

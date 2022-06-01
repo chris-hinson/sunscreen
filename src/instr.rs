@@ -21,6 +21,7 @@ impl InstrData {
 pub struct Instr {
     //hashmap of opcode to instr data
     //TODO: could instead use a vec ordered by opcode for constant lookup
+    //ignore above, this should already by constant lookup
     //later note: hashmap is already constant lookup lol? might look neater as a vec tho.
     //look at peachy's crystal emulator
     pub instrs: HashMap<u8, InstrData>,
