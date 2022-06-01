@@ -181,6 +181,8 @@ impl Cpu {
 
                 for (i, b) in bytes.iter().enumerate() {
                     self.WRAM[(base_addr as usize) + i] = *b;
+                    //self.WRAM[(base_addr as usize) + i + 2048] = *b;
+                    //self.WRAM[(base_addr as usize) + i + 4096] = *b;
                 }
             }
             //PPU control regs (8 bytes) + a fuckton of mirrors

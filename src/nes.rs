@@ -58,7 +58,7 @@ impl NES {
     pub fn calc_addr(&mut self, bytes: &Vec<u8>, mode: AddrMode) -> u16 {
         return match mode {
             AddrMode::ABS => {
-                let addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
+                let addr = (bytes[2] as u16) << 8 | bytes[1] as u16;
                 addr
             }
             AddrMode::ABSX => {
