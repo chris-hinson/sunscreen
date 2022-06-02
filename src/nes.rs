@@ -1,6 +1,10 @@
 use crate::cart::Cart;
 use crate::cpu::Cpu;
 use crate::instr::Instr;
+use std::sync::mpsc::channel;
+use std::sync::mpsc::Sender;
+
+use std::fs;
 
 use std::fmt::Write;
 
@@ -36,6 +40,25 @@ impl NES {
             cart,
             cycles: 7, //from intial reset vector
             instr_data: Instr::new(),
+        }
+    }
+
+    //function to run this system in its own thread, takes a SENDER channel to return logs on to the rendering thread
+    pub fn run(&mut self, tx: Sender<String>, mut log: Vec<String>) {
+        loop {
+            let good_line = log.pop().unwrap();
+            let our_line = self.step();
+            if good_line.eq(&our_line) {
+                tx.send(our_line);
+            } else {
+                fs::write(
+                    "./errorlog.log",
+                    format!("good: {}\nbad:  {}", good_line, our_line),
+                )
+                .expect("Unable to write file");
+                tx.send(our_line);
+                break;
+            }
         }
     }
 

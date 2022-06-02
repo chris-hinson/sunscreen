@@ -12,7 +12,6 @@ pub struct AppState {
 pub fn setup_tui(system: &mut crate::nes::NES) -> cursive::CursiveRunner<cursive::CursiveRunnable> {
     //main structs
     let mut cur = cursive::default();
-    cur.set_fps(15);
     let mut our_runner = cur.into_runner();
 
     //app state and our cpu
@@ -51,7 +50,7 @@ pub fn setup_tui(system: &mut crate::nes::NES) -> cursive::CursiveRunner<cursive
     let log_view = ResizedView::new(
         SizeConstraint::Full,
         SizeConstraint::Full,
-        BufferView::new(75).with_name("buf"),
+        BufferView::new(75).with_name("log"),
     );
 
     let cpu_state = ResizedView::new(SizeConstraint::Full, SizeConstraint::Full, DummyView);
@@ -90,8 +89,8 @@ pub fn setup_tui(system: &mut crate::nes::NES) -> cursive::CursiveRunner<cursive
 
     let bottom_level = LinearLayout::horizontal()
         .child(Dialog::around(ram_view).title("VRAM"))
-        .child(Dialog::around(rom_view).title("ROM"))
-        .child(Dialog::around(chr_view).title("CHR"));
+        .child(Dialog::around(rom_view).title("ROM"));
+    //.child(Dialog::around(chr_view).title("CHR"));
 
     our_runner.add_layer(
         LinearLayout::vertical()
