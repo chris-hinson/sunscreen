@@ -1,5 +1,5 @@
 pub struct Cart {
-    prg_rom: Vec<u8>,
+    pub prg_rom: Vec<u8>,
 }
 
 impl Cart {

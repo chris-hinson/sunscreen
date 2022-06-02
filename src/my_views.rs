@@ -10,7 +10,7 @@ use cursive::Vec2;
 use cursive::View;
 use std::borrow::Borrow;
 
-///////////////////////////////////////START BUFFERVIEW////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////
 // Let's define a buffer view, that shows the last lines from a stream.
 //NOTE: this was stolen from the cursive logs.rs example, but i made it not async bc i dont like async
 pub struct BufferView {
@@ -46,8 +46,7 @@ impl View for BufferView {
         }
     }
 }
-///////////////////////////////////////END BUFFERVIEW//////////////////////////////////////////////
-///////////////////////////////////////START ULTRAHEXAVIEW/////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////
 pub struct UltraHexaView {
     //the core data of this view
     data: Vec<u8>,
@@ -72,33 +71,27 @@ impl UltraHexaView {
         };
     }
 
-    pub fn new_from_iter<B: Borrow<u8>, I: IntoIterator<Item = B>>(d: I) -> Self {
+    pub fn new_from_iter<'a>(d: impl IntoIterator<Item = &'a u8>) -> Self {
         return UltraHexaView {
-            data: d.into_iter().map(|v| *v.borrow()).collect(),
+            data: d.into_iter().copied().collect(),
             base_line: 0,
             index: 0,
             num_lines: 0,
             watchpoints: Vec::new(),
         };
     }
-    pub fn new_from_iter_with_watch<
-        U: Borrow<usize>,
-        B: Borrow<u8>,
-        I: IntoIterator<Item = B>,
-        W: IntoIterator<Item = U>,
-    >(
-        d: I,
-        watchpoints: W,
+    pub fn new_from_iter_with_watch<'a>(
+        d: impl IntoIterator<Item = &'a u8>,
+        watchpoints: impl IntoIterator<Item = &'a usize>,
     ) -> Self {
         return UltraHexaView {
-            data: d.into_iter().map(|v| *v.borrow()).collect(),
+            data: d.into_iter().copied().collect(),
             base_line: 0,
             index: 0,
             num_lines: 0,
-            watchpoints: watchpoints.into_iter().map(|v| *v.borrow()).collect(),
+            watchpoints: watchpoints.into_iter().copied().collect(),
         };
     }
-
     pub fn set_data(&mut self, dat: &mut Vec<u8>) {
         self.data = dat.to_vec();
     }
@@ -244,4 +237,3 @@ impl View for UltraHexaView {
         return Ok(EventResult::consumed());
     }
 }
-///////////////////////////////////////END ULTRAHEXAVIEW///////////////////////////////////////////

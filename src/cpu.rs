@@ -11,7 +11,7 @@ pub struct Cpu {
     pub SR: SR,
     pub SP: u8,
     //TODO: should this be part of the cpu or should we put it somewhere else?
-    WRAM: [u8; 2048],
+    pub WRAM: [u8; 2048],
 }
 
 impl fmt::Display for Cpu {

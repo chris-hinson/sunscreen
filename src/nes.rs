@@ -1284,7 +1284,7 @@ impl NES {
             self.cpu, self.cycles
         )
         .unwrap();
-        println!("{stepstring}");
+        //println!("{stepstring}");
         return stepstring;
     }
 }

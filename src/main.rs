@@ -8,7 +8,10 @@ use pretty_assertions::{assert_eq, assert_ne};
 mod cart;
 mod cpu;
 mod instr;
+mod my_views;
 mod nes;
+mod tui;
+
 use cart::Cart;
 use cpu::Cpu;
 use nes::NES;
@@ -20,6 +23,8 @@ fn main() {
     let mut log = log_file.split("\n").collect::<Vec<&str>>();
     //we dont need to check initial state
     log.remove(0);
+    //reverse the log so we can pop values from it
+    log = log.into_iter().rev().collect();
 
     //load our rom
     let filename = "./test-roms/nestest/nestest.nes";
@@ -34,13 +39,33 @@ fn main() {
 
     //make our full system
     let mut nes = NES::new(cpu, cart);
-    /*println!(
-        "intial state (following reset vector)           {} CYC:{}",
-        nes.cpu, nes.cycles
-    );*/
 
-    //run one step of our system
-    for line in log {
-        assert_eq!(nes.step(), line);
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    let mut tui = crate::tui::setup_tui(&mut nes);
+
+    ///////////////////////////////////////////////////////////////////////////////////////////////
+    'running: loop {
+        let mut step_running = false;
+        tui.with_user_data(|s: &mut crate::tui::AppState| {
+            if s.is_running {
+                step_running = true;
+            }
+        });
+
+        //only actually do stuff if we are currently running
+        if step_running {
+            //first lets step our system
+            let line = log.pop();
+            let all_good = match line {
+                Some(v) => nes.step().eq(v),
+                None => break 'running,
+            };
+            if !all_good {
+                break 'running;
+            }
+
+            let _tui_event_received = tui.step();
+            tui.refresh();
+        }
     }
 }
