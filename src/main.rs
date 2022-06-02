@@ -54,9 +54,9 @@ fn main() {
     let mut tui = crate::tui::setup_tui(&mut nes);
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    let (tx, rx): (Sender<String>, Receiver<String>) = channel();
+    let (log_tx, log_rx): (Sender<String>, Receiver<String>) = channel();
 
-    thread::spawn(move || nes.run(tx, log));
+    thread::spawn(move || nes.run(log_tx, log));
 
     let mut error = (String::new(), String::new());
     'running: loop {
@@ -70,29 +70,17 @@ fn main() {
         //only actually do stuff if we are currently running
         if step_running {
             //get all pending log lines and append them to the buffer view
-            let mut pending: Vec<String> = rx.try_iter().collect();
-            /*let mut good: Vec<String> = Vec::new();
-            let mut all_good = true;
-            for l in pending {
-                let good_line = log.pop();
-                all_good = good_line.unwrap().eq(&l);
-                good.push(l.to_string());
-                //stop processing
-                if !all_good {
-                    error = (good_line.unwrap().to_string(), l.to_string());
-                    break;
-                }
-            }*/
-
+            let mut pending: Vec<String> = log_rx.try_iter().collect();
             tui.call_on_name("log", |view: &mut crate::my_views::BufferView| {
                 view.update(&mut pending)
             });
 
-            /*if !all_good {
-                tui.with_user_data(|s: &mut crate::tui::AppState| {
-                    step_running = false;
-                });
-            }*/
+            //TODO: we also need to get -
+            //cpu state
+            //vram
+            //prg-rom
+            //ppu data????
+            //apu data????
         }
 
         let _tui_event_received = tui.step();
@@ -100,21 +88,4 @@ fn main() {
     }
 
     tui.quit();
-
-    /*let mut outlog = std::fs::OpenOptions::new()
-        .write(true)
-        .truncate(true)
-        .open("./errorlog.log")
-        .expect("couldnt open");
-    outlog
-        .write(format!("good: {}\nbad:{}", error.0, error.1).as_bytes())
-        .expect("couldnt write");
-    outlog.flush().expect("couldnt flush");*/
-
-    /*fs::write(
-        "./errorlog.log",
-        format!("good: {}\nbad:{}", error.0, error.1),
-    )
-    .expect("Unable to write file");*/
-    //assert_eq!(error.1, error.0);
 }
