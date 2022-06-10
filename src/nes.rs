@@ -1,7 +1,6 @@
 use crate::cart::Cart;
 use crate::cpu::Cpu;
 use crate::instr::Instr;
-use std::sync::mpsc::channel;
 use std::sync::mpsc::Sender;
 
 use std::fs;
@@ -23,41 +22,66 @@ pub enum AddrMode {
     ZPGY,
 }
 
+pub struct Channels {
+    pub log_channel: Sender<String>,
+}
+
 pub struct NES {
-    pub cycles: u128,
+    //components
     pub cpu: Cpu,
     pub cart: Cart,
     pub instr_data: Instr,
     //apu
     //ppu
-    //VRAM
+    //VRAM??
+
+    //data about the system
+    pub cycles: u128,
+    pub channels: Channels,
+    pub running: bool,
+    //breakpoints halt execution when our PC equals that value
+    pub breakpoints: Vec<usize>,
+    //watchpoints halt execution when a write goes to that address
+    pub watchpoints: Vec<usize>,
 }
 
 impl NES {
-    pub fn new(cpu: Cpu, cart: Cart) -> NES {
+    pub fn new(cpu: Cpu, cart: Cart, channels: Channels) -> NES {
         NES {
             cpu,
             cart,
             cycles: 7, //from intial reset vector
             instr_data: Instr::new(),
+            channels,
+            running: true,
+            breakpoints: Vec::new(),
+            watchpoints: Vec::new(),
         }
     }
 
     //function to run this system in its own thread, takes a SENDER channel to return logs on to the rendering thread
-    pub fn run(&mut self, tx: Sender<String>, mut log: Vec<String>) {
+    pub fn run(&mut self, mut log: Vec<String>) {
         loop {
-            let good_line = log.pop().unwrap();
-            let our_line = self.step();
-            if good_line.eq(&our_line) {
-                tx.send(our_line);
-            } else {
-                fs::write(
-                    "./errorlog.log",
-                    format!("good: {}\nbad:  {}", good_line, our_line),
-                )
-                .expect("Unable to write file");
-                tx.send(our_line);
-                break;
+            //TODO: spinning is bad, but works for debugging ig
+            if self.running {
+                //get the next log line
+                let good_line = log.pop().unwrap();
+                //get our log line by stepping the system
+                let our_line = self.step();
+                //send our log line to the rendering thread
+                self.channels
+                    .log_channel
+                    .send(our_line.clone().unwrap())
+                    .unwrap();
+                //if the lines arent equal, write to errorlog.log and break our running loop
+                if !good_line.eq(our_line.as_ref().unwrap()) {
+                    fs::write(
+                        "./errorlog.log",
+                        format!("good: {}\nbad:  {}", good_line, our_line.unwrap()),
+                    )
+                    .expect("Unable to write file");
+                    break;
+                }
             }
         }
     }
@@ -234,7 +258,14 @@ impl NES {
         };
     }
 
-    pub fn step(&mut self) -> String {
+    //stepping our system can either return an Ok(log string) or an Err(step_error)
+    pub fn step(&mut self) -> Result<String, String> {
+        //if we are at a breakpoint, take no action, and set our running flag to false
+        if self.breakpoints.contains(&(self.cpu.PC as usize)) {
+            self.running = false;
+            return Err("Hit breakpoint".to_owned());
+        }
+
         //for debugging, lets build a string to output this step
         let mut stepstring = String::new();
 
@@ -1308,7 +1339,7 @@ impl NES {
         )
         .unwrap();
         //println!("{stepstring}");
-        return stepstring;
+        return Ok(stepstring);
     }
 }
 

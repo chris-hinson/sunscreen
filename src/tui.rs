@@ -11,7 +11,7 @@ pub struct AppState {
 }
 pub fn setup_tui(system: &mut crate::nes::NES) -> cursive::CursiveRunner<cursive::CursiveRunnable> {
     //main structs
-    let mut cur = cursive::default();
+    let cur = cursive::default();
     let mut our_runner = cur.into_runner();
 
     //app state and our cpu

@@ -105,6 +105,12 @@ impl UltraHexaView {
             self.data[v.borrow().0] = v.borrow().1;
         }
     }
+    pub fn update_index(&mut self, new: (usize, u8)) {
+        match self.data.get_mut(new.0) {
+            Some(v) => *v = new.1,
+            None => {}
+        }
+    }
 
     //tries to move cursor down a row, return
     fn go_down(&mut self) -> EventResult {

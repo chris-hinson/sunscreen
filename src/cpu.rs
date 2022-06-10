@@ -1,5 +1,6 @@
 use crate::cart::Cart;
 use std::fmt;
+use std::sync::mpsc::Sender;
 
 #[allow(non_snake_case)]
 #[derive(Debug)]
@@ -12,6 +13,7 @@ pub struct Cpu {
     pub SP: u8,
     //TODO: should this be part of the cpu or should we put it somewhere else?
     pub WRAM: [u8; 2048],
+    pub mem_channel: Sender<(usize, u8)>,
 }
 
 impl fmt::Display for Cpu {
@@ -108,7 +110,7 @@ impl SR {
 }
 
 impl Cpu {
-    pub fn new() -> Self {
+    pub fn new(mem_channel: Sender<(usize, u8)>) -> Self {
         let mut our_cpu = Cpu {
             PC: 0x0,
             ACC: 0x0,
@@ -117,6 +119,7 @@ impl Cpu {
             SR: SR::new(),
             SP: 0xFD,
             WRAM: [0; 2048],
+            mem_channel,
         };
 
         our_cpu.SR.encode(0b0010_0100);
@@ -180,9 +183,12 @@ impl Cpu {
                 let base_addr = addr % 2048;
 
                 for (i, b) in bytes.iter().enumerate() {
+                    //write value into ram
                     self.WRAM[(base_addr as usize) + i] = *b;
-                    //self.WRAM[(base_addr as usize) + i + 2048] = *b;
-                    //self.WRAM[(base_addr as usize) + i + 4096] = *b;
+                    //make sure we also send this value to the frontend
+                    self.mem_channel
+                        .send((((base_addr as usize) + i), *b))
+                        .unwrap();
                 }
             }
             //PPU control regs (8 bytes) + a fuckton of mirrors

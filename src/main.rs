@@ -21,8 +21,6 @@ use std::sync::mpsc::Receiver;
 use std::sync::mpsc::Sender;
 use std::thread;
 
-use std::io::Write;
-
 fn main() {
     //loading our log
     let good_log = "./test-roms/nestest-redux/nestest_cpu_relined.log";
@@ -40,25 +38,34 @@ fn main() {
     let filename = "./test-roms/nestest/nestest.nes";
     let rom_file = fs::read(filename).expect("file not found!");
 
+    //construct our channels for sending data to the tui
+    //our channel for log data between threads
+    let (log_tx, log_rx): (Sender<String>, Receiver<String>) = channel();
+    //our channel for sending and receiving any updates to cpu memory
+    let (mem_tx, mem_rx): (Sender<(usize, u8)>, Receiver<(usize, u8)>) = channel();
+
     //make our cpu :D
-    let mut cpu = Cpu::new();
+    let mut cpu = Cpu::new(mem_tx);
     //make our "cart"
     let cart = Cart::new(rom_file[0x10..=0x400f].to_vec());
     //set PC to 0xc000
     cpu.PC = 0xc000;
 
+    //declare our channels
+    let channels = nes::Channels {
+        log_channel: log_tx,
+    };
+
     //make our full system
-    let mut nes = NES::new(cpu, cart);
+    let mut nes = NES::new(cpu, cart, channels);
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
     let mut tui = crate::tui::setup_tui(&mut nes);
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
-    let (log_tx, log_rx): (Sender<String>, Receiver<String>) = channel();
 
-    thread::spawn(move || nes.run(log_tx, log));
+    thread::spawn(move || nes.run(log));
 
-    let mut error = (String::new(), String::new());
     'running: loop {
         let mut step_running = false;
         tui.with_user_data(|s: &mut crate::tui::AppState| {
@@ -70,14 +77,20 @@ fn main() {
         //only actually do stuff if we are currently running
         if step_running {
             //get all pending log lines and append them to the buffer view
-            let mut pending: Vec<String> = log_rx.try_iter().collect();
+            let mut pending_logs: Vec<String> = log_rx.try_iter().collect();
             tui.call_on_name("log", |view: &mut crate::my_views::BufferView| {
-                view.update(&mut pending)
+                view.update(&mut pending_logs)
             });
 
             //TODO: we also need to get -
             //cpu state
             //vram
+
+            //read any pending ram updates into a vector
+            let pending_vram_data: Vec<(usize, u8)> = mem_rx.try_iter().collect();
+            tui.call_on_name("ram_view", |view: &mut crate::my_views::UltraHexaView| {
+                view.update_data(pending_vram_data);
+            });
             //prg-rom
             //ppu data????
             //apu data????
@@ -86,6 +99,4 @@ fn main() {
         let _tui_event_received = tui.step();
         tui.refresh();
     }
-
-    tui.quit();
 }
