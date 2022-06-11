@@ -1,6 +1,4 @@
-use crate::cart::Cart;
-use std::fmt::{self, format};
-use std::sync::mpsc::Sender;
+use std::fmt;
 
 #[allow(non_snake_case)]
 #[derive(Debug)]
@@ -12,8 +10,10 @@ pub struct Cpu {
     pub SR: SR,
     pub SP: u8,
     //TODO: should this be part of the cpu or should we put it somewhere else?
-    pub WRAM: [u8; 2048],
-    pub mem_channel: Sender<(usize, u8)>,
+    //TODO: i am refactoring this rn, it is going into the NES
+    //pub WRAM: [u8; 2048],
+    //no more channels in the cpu. only the system should be communicating with the tui
+    //pub mem_channel: Sender<(usize, u8)>,
 }
 
 //this is how we print our cpu status for comparing against nestest
@@ -111,7 +111,7 @@ impl SR {
 }
 
 impl Cpu {
-    pub fn new(mem_channel: Sender<(usize, u8)>) -> Self {
+    pub fn new() -> Self {
         let mut our_cpu = Cpu {
             PC: 0x0,
             ACC: 0x0,
@@ -119,8 +119,8 @@ impl Cpu {
             Y: 0x0,
             SR: SR::new(),
             SP: 0xFD,
-            WRAM: [0; 2048],
-            mem_channel,
+            //WRAM: [0; 2048],
+            //mem_channel,
         };
 
         our_cpu.SR.encode(0b0010_0100);
@@ -168,93 +168,5 @@ impl Cpu {
         ));
 
         return ret_vec;
-    }
-
-    //memory operations
-
-    /*CPU Memory Map (16bit buswidth, 0-FFFFh)
-
-    0000h-07FFh   Internal 2K Work RAM (mirrored to 800h-1FFFh)
-    2000h-2007h   Internal PPU Registers (mirrored to 2008h-3FFFh)
-    4000h-4017h   Internal APU Registers
-    4018h-5FFFh   Cartridge Expansion Area almost 8K
-    6000h-7FFFh   Cartridge SRAM Area 8K
-    8000h-FFFFh   Cartridge PRG-ROM Area 32K*/
-
-    //so when the cpu reads or writes to an address, these functions should dispatch the rw to
-    //the appropriate part
-
-    //TODO: to handle reads to other parts of the system, we must pass in mutable refrences to every other component
-    //read n bytes from address a
-    pub fn read(&mut self, addr: u16, cart: &mut Cart, length: usize) -> Vec<u8> {
-        match addr {
-            //WRAM(2kb) + 3 mirrors
-            0x0000..=0x1FFF => {
-                //mod by 2048 since we have 3 mirrors
-                let final_addr = addr % 2048;
-
-                return self.WRAM[final_addr as usize..final_addr as usize + length].into();
-                //return 0;
-            }
-            //PPU control regs a PM at gs (8 bytes) + a fuckton of mirrors
-            0x2000..=0x3FFF => {
-                //return [].into();
-                unimplemented!("tried to read ppu control regs")
-            }
-            //registers (apu and io)
-            0x4000..=0x4017 => {
-                //return [].into();
-                unimplemented!("tried to read apu/io regs")
-            }
-            //cart expansion
-            0x4018..=0x5FFF => {
-                //return [].into();
-                unimplemented!("tried to read cart expansion")
-            }
-            //cart SRAM (8k)
-            0x6000..=0x7FFF => {
-                //return [].into();
-                unimplemented!("tried to read cart SRAM")
-            }
-            //PRG-ROM (32K)
-            0x8000..=0xFFFF => cart.read(addr, length).into(),
-        }
-    }
-    pub fn write(&mut self, addr: u16, bytes: &Vec<u8>) {
-        match addr {
-            //WRAM(2kb) + 3 mirrors
-            0x0000..=0x1FFF => {
-                let base_addr = addr % 2048;
-
-                for (i, b) in bytes.iter().enumerate() {
-                    //write value into ram
-                    self.WRAM[(base_addr as usize) + i] = *b;
-                    //make sure we also send this value to the frontend
-                    self.mem_channel
-                        .send((((base_addr as usize) + i), *b))
-                        .unwrap();
-                }
-            }
-            //PPU control regs (8 bytes) + a fuckton of mirrors
-            0x2000..=0x3FFF => {
-                unimplemented!("tried to write to ppu control regs")
-            }
-            //registers (apu and io)
-            0x4000..=0x4017 => {
-                unimplemented!("tried to wrote to apu/io regs")
-            }
-            //cart expansion
-            0x4018..=0x5FFF => {
-                unimplemented!("tried to write to cart expansion?")
-            }
-            //cart SRAM (8k)
-            0x6000..=0x7FFF => {
-                unimplemented!("tried to write to cart SRAM")
-            }
-            //PRG-ROM (32K)
-            0x8000..=0xFFFF => {
-                unimplemented!("tried to write to prg-rom??")
-            }
-        }
     }
 }

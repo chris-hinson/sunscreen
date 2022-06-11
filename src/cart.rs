@@ -2,6 +2,8 @@ pub struct Cart {
     pub prg_rom: Vec<u8>,
 }
 
+//TODO: remove me when we implement not terrible carts lmao
+#[allow(dead_code)]
 impl Cart {
     pub fn new(bank0: Vec<u8>) -> Self {
         return Cart { prg_rom: bank0 };

@@ -1,4 +1,4 @@
-use crate::cpu::{Cpu, SR};
+use crate::cpu::Cpu;
 use cursive::direction::Direction;
 use cursive::event::*;
 use cursive::theme;
@@ -59,6 +59,7 @@ pub struct UltraHexaView {
     //vector of indexes of interest (watchpoints) so we can highlight them
     watchpoints: Vec<usize>,
 }
+#[allow(dead_code)]
 impl UltraHexaView {
     //pub fn new(num_lines: usize) -> Self {
     pub fn new() -> Self {

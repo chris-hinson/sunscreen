@@ -1,13 +1,15 @@
 use crate::cart::Cart;
 use crate::cpu::Cpu;
 use crate::instr::Instr;
+use crate::wram::Wram;
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex};
 
 use std::fs;
 
 use std::fmt::Write;
 
+//TODO: remove this allow once we finish implementing all addressing modes
+#[allow(dead_code)]
 pub enum AddrMode {
     ACC,
     ABS,
@@ -26,6 +28,7 @@ pub enum AddrMode {
 pub struct Channels {
     pub log_channel: Sender<String>,
     pub cpu_channel: Sender<Vec<String>>,
+    pub wram_channel: Sender<(usize, u8)>,
 }
 
 pub struct NES {
@@ -33,6 +36,7 @@ pub struct NES {
     pub cpu: Cpu,
     pub cart: Cart,
     pub instr_data: Instr,
+    pub wram: Wram,
     //apu
     //ppu
     //VRAM??
@@ -48,10 +52,11 @@ pub struct NES {
 }
 
 impl NES {
-    pub fn new(cpu: Cpu, cart: Cart, channels: Channels) -> NES {
+    pub fn new(cpu: Cpu, cart: Cart, wram: Wram, channels: Channels) -> NES {
         NES {
             cpu,
             cart,
+            wram,
             cycles: 7, //from intial reset vector
             instr_data: Instr::new(),
             channels,
@@ -86,10 +91,14 @@ impl NES {
                         .expect("Unable to write file");
                         //break;
                         //send our tui a cpu snapshot when we halt
-                        self.channels.cpu_channel.send(self.cpu.fmt_for_tui());
+                        self.channels
+                            .cpu_channel
+                            .send(self.cpu.fmt_for_tui())
+                            .unwrap();
                         self.channels
                             .log_channel
-                            .send("HALTING EXECUTION BECAUSE WE FAILED LOG COMPARISON".to_string());
+                            .send("HALTING EXECUTION BECAUSE WE FAILED LOG COMPARISON".to_string())
+                            .unwrap();
                         self.running = false;
                     }
                 //if we hit a breakpoint, halt execution
@@ -210,17 +219,17 @@ impl NES {
             AddrMode::ACC => self.cpu.ACC,
             AddrMode::ABS => {
                 let addr = self.calc_addr(bytes, AddrMode::ABS);
-                let val = self.cpu.read(addr, &mut self.cart, 1)[0];
+                let val = self.read(addr, 1)[0];
                 write!(stepstring, "${:04X} = {:02X}", addr, val).unwrap();
                 val
             }
             AddrMode::ABSX => {
                 let addr = self.calc_addr(bytes, AddrMode::ABSX);
-                self.cpu.read(addr, &mut self.cart, 1)[0]
+                self.read(addr, 1)[0]
             }
             AddrMode::ABSY => {
                 let addr = self.calc_addr(bytes, AddrMode::ABSY);
-                self.cpu.read(addr, &mut self.cart, 1)[0]
+                self.read(addr, 1)[0]
             }
             AddrMode::IMM => {
                 write!(stepstring, "#${:02X}", bytes[1]).unwrap();
@@ -228,29 +237,29 @@ impl NES {
             }
             AddrMode::IND => {
                 let addr = self.calc_addr(bytes, AddrMode::IND);
-                self.cpu.read(addr, &mut self.cart, 1)[0]
+                self.read(addr, 1)[0]
             }
             AddrMode::INDX => {
                 let addr = self.calc_addr(bytes, AddrMode::INDX);
-                self.cpu.read(addr, &mut self.cart, 1)[0]
+                self.read(addr, 1)[0]
             }
             AddrMode::INDY => {
                 let addr = self.calc_addr(bytes, AddrMode::INDY);
-                self.cpu.read(addr, &mut self.cart, 1)[0]
+                self.read(addr, 1)[0]
             }
             AddrMode::REL => {
                 let addr = self.calc_addr(bytes, AddrMode::REL);
-                self.cpu.read(addr, &mut self.cart, 1)[0]
+                self.read(addr, 1)[0]
             }
             AddrMode::ZPG => {
                 let addr = self.calc_addr(bytes, AddrMode::ZPG);
-                let val = self.cpu.read(addr, &mut self.cart, 1)[0];
+                let val = self.read(addr, 1)[0];
                 write!(stepstring, "${:02X} = {:02X}", addr as u8, val).unwrap();
                 val
             }
             AddrMode::ZPGX => {
                 let addr = self.calc_addr(bytes, AddrMode::ZPGX);
-                let val = self.cpu.read(addr, &mut self.cart, 1)[0];
+                let val = self.read(addr, 1)[0];
                 write!(
                     stepstring,
                     "${:04X},X @ {:04X} = {:02X}",
@@ -264,7 +273,7 @@ impl NES {
             }
             AddrMode::ZPGY => {
                 let addr = self.calc_addr(bytes, AddrMode::ZPGY);
-                let val = self.cpu.read(addr, &mut self.cart, 1)[0];
+                let val = self.read(addr, 1)[0];
                 write!(
                     stepstring,
                     "${:04X},X @ {:04X} = {:02X}",
@@ -294,7 +303,7 @@ impl NES {
         // our current addr,
         // the bytes that make up this instr,
         // padding out to 16 chars
-        let instr: u8 = self.cpu.read(self.cpu.PC, &mut self.cart, 1)[0];
+        let instr: u8 = self.read(self.cpu.PC, 1)[0];
 
         //DEBUG
         match self.instr_data.instrs.get(&instr) {
@@ -304,11 +313,7 @@ impl NES {
             }
         }
 
-        let bytes = self.cpu.read(
-            self.cpu.PC,
-            &mut self.cart,
-            self.instr_data.instrs[&instr].len,
-        );
+        let bytes = self.read(self.cpu.PC, self.instr_data.instrs[&instr].len);
         let bytes_string = print_bytes(&bytes);
         let padding: String = vec![" "; 16 - (bytes_string.len() + 6)].join("");
 
@@ -582,7 +587,7 @@ impl NES {
                 //interrupt,
                 //push PC+2
                 let ra = self.cpu.PC + 2;
-                self.cpu.write(
+                self.write(
                     self.cpu.SP as u16,
                     &vec![(ra & 0xFF) as u8, (ra & 0xFF00 >> 8) as u8],
                 );
@@ -593,7 +598,7 @@ impl NES {
                 let mut saved_sr = self.cpu.SR;
                 saved_sr.BH = true;
                 saved_sr.BL = true;
-                self.cpu.write(self.cpu.SP as u16, &vec![saved_sr.decode()]);
+                self.write(self.cpu.SP as u16, &vec![saved_sr.decode()]);
                 self.cpu.SP -= 1;
 
                 self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
@@ -867,7 +872,7 @@ impl NES {
                     imm
                 } else {
                     let addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
-                    let bytes = self.cpu.read(addr, &mut self.cart, 2);
+                    let bytes = self.read(addr, 2);
                     let val = bytes[1] as u16 | (bytes[2] as u16) << 8;
                     write!(stepstring, "(${addr:04X}) = {val:04X}").unwrap();
                     val
@@ -886,7 +891,7 @@ impl NES {
                 let ra = self.cpu.PC + 2;
                 let ral = (ra & 0xFF) as u8;
                 let rah = ((ra >> 8) & 0xFF) as u8;
-                self.cpu.write(addr, &[ral, rah].to_vec());
+                self.write(addr, &[ral, rah].to_vec());
                 self.cpu.SP -= 2;
                 //set pc to target addr
                 let target = bytes[1] as u16 | (bytes[2] as u16) << 8;
@@ -1047,7 +1052,7 @@ impl NES {
                 implied	PHA	48	1	3 */
             0x48 => {
                 //push ACC (B =  11)
-                self.cpu.write(self.cpu.SP as u16, &vec![self.cpu.ACC]);
+                self.write(self.cpu.SP as u16, &vec![self.cpu.ACC]);
                 self.cpu.SP -= 1;
 
                 self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
@@ -1063,7 +1068,7 @@ impl NES {
                 saved_sr.BH = true;
                 saved_sr.BL = true;
 
-                self.cpu.write(self.cpu.SP as u16, &vec![saved_sr.decode()]);
+                self.write(self.cpu.SP as u16, &vec![saved_sr.decode()]);
                 self.cpu.SP -= 1;
 
                 self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
@@ -1075,7 +1080,7 @@ impl NES {
                 implied	PLA	68	1	4  */
             0x68 => {
                 self.cpu.SP += 1;
-                self.cpu.ACC = self.cpu.read(self.cpu.SP as u16, &mut self.cart, 1)[0];
+                self.cpu.ACC = self.read(self.cpu.SP as u16, 1)[0];
 
                 self.cpu.SR.N = (self.cpu.ACC as i8) < 0;
                 self.cpu.SR.Z = self.cpu.ACC == 0;
@@ -1089,7 +1094,7 @@ impl NES {
                 implied	PLP	28	1	4 */
             0x28 => {
                 self.cpu.SP += 1;
-                let pulled = self.cpu.read(self.cpu.SP as u16, &mut self.cart, 1)[0];
+                let pulled = self.read(self.cpu.SP as u16, 1)[0];
                 let old_bh = self.cpu.SR.BH;
                 let old_bl = self.cpu.SR.BL;
 
@@ -1110,7 +1115,7 @@ impl NES {
             0x60 => {
                 //pull PC, PC+1 -> PC
                 self.cpu.SP += 2;
-                let pull = self.cpu.read(self.cpu.SP as u16, &mut self.cart, 2);
+                let pull = self.read(self.cpu.SP as u16, 2);
                 let new_pc = pull[0] as u16 | (pull[1] as u16) << 8;
                 self.cpu.PC = new_pc;
 
@@ -1202,13 +1207,8 @@ impl NES {
                 let addr: u16 = match instr {
                     0x85 => {
                         let addr = self.calc_addr(&bytes, AddrMode::ZPG);
-                        write!(
-                            stepstring,
-                            "${:02x} = {:02X}",
-                            addr,
-                            self.cpu.read(addr, &mut self.cart, 1)[0]
-                        )
-                        .unwrap();
+                        write!(stepstring, "${:02x} = {:02X}", addr, self.read(addr, 1)[0])
+                            .unwrap();
                         addr
                     }
                     0x95 => {
@@ -1240,7 +1240,7 @@ impl NES {
                     }
                 };
 
-                self.cpu.write(addr, &vec![self.cpu.ACC]);
+                self.write(addr, &vec![self.cpu.ACC]);
 
                 self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
                 self.cycles += self.instr_data.instrs[&instr].cycles as u128;
@@ -1256,7 +1256,7 @@ impl NES {
                 //BEFORE we write to it
                 let addr = if instr == 0x86 {
                     let addr = self.calc_addr(&bytes, AddrMode::ZPG);
-                    let cur_val = self.cpu.read(addr, &mut self.cart, 1)[0];
+                    let cur_val = self.read(addr, 1)[0];
                     write!(stepstring, "${:02X} = {:02X}", addr, cur_val).unwrap();
                     addr
                 } else if instr == 0x96 {
@@ -1264,12 +1264,12 @@ impl NES {
                     addr
                 } else {
                     let addr = self.calc_addr(&bytes, AddrMode::ABS);
-                    let cur_val = self.cpu.read(addr, &mut self.cart, 1)[0];
+                    let cur_val = self.read(addr, 1)[0];
                     write!(stepstring, "${:04X} = {:02X}", addr, cur_val).unwrap();
                     addr
                 };
 
-                self.cpu.write(addr, &[self.cpu.X].to_vec());
+                self.write(addr, &[self.cpu.X].to_vec());
 
                 self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
                 self.cycles += self.instr_data.instrs[&instr].cycles as u128;
@@ -1361,6 +1361,96 @@ impl NES {
         .unwrap();
         //println!("{stepstring}");
         return Ok(stepstring);
+    }
+
+    //memory operations
+
+    /*CPU Memory Map (16bit buswidth, 0-FFFFh)
+
+    0000h-07FFh   Internal 2K Work RAM (mirrored to 800h-1FFFh)
+    2000h-2007h   Internal PPU Registers (mirrored to 2008h-3FFFh)
+    4000h-4017h   Internal APU Registers
+    4018h-5FFFh   Cartridge Expansion Area almost 8K
+    6000h-7FFFh   Cartridge SRAM Area 8K
+    8000h-FFFFh   Cartridge PRG-ROM Area 32K*/
+
+    //so when the cpu reads or writes to an address, these functions should dispatch the rw to
+    //the appropriate part
+
+    //to handle reads to other parts of the system, we must pass in refs to every other component
+    //read n bytes from address a
+    pub fn read(&mut self, addr: u16, length: usize) -> Vec<u8> {
+        match addr {
+            //WRAM(2kb) + 3 mirrors
+            0x0000..=0x1FFF => {
+                //mod by 2048 since we have 3 mirrors
+                let final_addr = addr % 2048;
+
+                return self.wram.contents[final_addr as usize..final_addr as usize + length]
+                    .into();
+                //return 0;
+            }
+            //PPU control regs a PM at gs (8 bytes) + a fuckton of mirrors
+            0x2000..=0x3FFF => {
+                //return [].into();
+                unimplemented!("tried to read ppu control regs")
+            }
+            //registers (apu and io)
+            0x4000..=0x4017 => {
+                //return [].into();
+                unimplemented!("tried to read apu/io regs")
+            }
+            //cart expansion
+            0x4018..=0x5FFF => {
+                //return [].into();
+                unimplemented!("tried to read cart expansion")
+            }
+            //cart SRAM (8k)
+            0x6000..=0x7FFF => {
+                //return [].into();
+                unimplemented!("tried to read cart SRAM")
+            }
+            //PRG-ROM (32K)
+            0x8000..=0xFFFF => self.cart.read(addr, length).into(),
+        }
+    }
+    pub fn write(&mut self, addr: u16, bytes: &Vec<u8>) {
+        match addr {
+            //WRAM(2kb) + 3 mirrors
+            0x0000..=0x1FFF => {
+                let base_addr = addr % 2048;
+
+                for (i, b) in bytes.iter().enumerate() {
+                    //write value into ram
+                    self.wram.contents[(base_addr as usize) + i] = *b;
+                    //make sure we also send this value to the frontend
+                    self.channels
+                        .wram_channel
+                        .send((((base_addr as usize) + i), *b))
+                        .unwrap();
+                }
+            }
+            //PPU control regs (8 bytes) + a fuckton of mirrors
+            0x2000..=0x3FFF => {
+                unimplemented!("tried to write to ppu control regs")
+            }
+            //registers (apu and io)
+            0x4000..=0x4017 => {
+                unimplemented!("tried to wrote to apu/io regs")
+            }
+            //cart expansion
+            0x4018..=0x5FFF => {
+                unimplemented!("tried to write to cart expansion?")
+            }
+            //cart SRAM (8k)
+            0x6000..=0x7FFF => {
+                unimplemented!("tried to write to cart SRAM")
+            }
+            //PRG-ROM (32K)
+            0x8000..=0xFFFF => {
+                unimplemented!("tried to write to prg-rom??")
+            }
+        }
     }
 }
 

@@ -3,7 +3,6 @@ use cursive::theme::{BaseColor::*, BorderStyle, Color::*, Palette, Theme};
 use cursive::traits::Nameable;
 use cursive::view::SizeConstraint;
 use cursive::views::{Dialog, DummyView, LinearLayout, ResizedView};
-use cursive::{Cursive, CursiveRunner};
 
 pub struct AppState {
     pub is_running: bool,
@@ -55,7 +54,7 @@ pub fn setup_tui(system: &mut crate::nes::NES) -> cursive::CursiveRunner<cursive
     let cpu_view = ResizedView::new(
         SizeConstraint::Full,
         SizeConstraint::Full,
-        crate::my_views::CpuView::new(&system.cpu).with_name("cpu"),
+        CpuView::new(&system.cpu).with_name("cpu"),
     );
 
     let cpu_state = ResizedView::new(SizeConstraint::Full, SizeConstraint::Full, cpu_view);
@@ -66,18 +65,18 @@ pub fn setup_tui(system: &mut crate::nes::NES) -> cursive::CursiveRunner<cursive
     let ram_view = ResizedView::new(
         SizeConstraint::Full,
         SizeConstraint::Fixed(15),
-        UltraHexaView::new_from_iter(&system.cpu.WRAM).with_name("ram_view"),
+        UltraHexaView::new_from_iter(&system.wram.contents).with_name("ram_view"),
     );
     let rom_view = ResizedView::new(
         SizeConstraint::Full,
         SizeConstraint::Fixed(15),
         UltraHexaView::new_from_iter(&system.cart.prg_rom).with_name("rom_view"),
     );
-    let chr_view = ResizedView::new(
+    /*let chr_view = ResizedView::new(
         SizeConstraint::Full,
         SizeConstraint::Fixed(15),
         UltraHexaView::new_from_iter(&system.cart.prg_rom).with_name("chr_view"),
-    );
+    );*/
 
     //add views to layer and add layer to screen
     let top_level = LinearLayout::horizontal()

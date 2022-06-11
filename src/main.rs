@@ -4,7 +4,6 @@
 use std::fs;
 
 use my_views::CpuView;
-use pretty_assertions::{assert_eq, assert_ne};
 
 mod cart;
 mod cpu;
@@ -12,13 +11,14 @@ mod instr;
 mod my_views;
 mod nes;
 mod tui;
+mod wram;
 
 use cart::Cart;
 use cpu::Cpu;
 use nes::NES;
+use wram::Wram;
 
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Mutex};
 use std::thread;
 
 fn main() {
@@ -41,13 +41,15 @@ fn main() {
     //construct our channels for sending data to the tui
     //our channel for log data between threads
     let (log_tx, log_rx): (Sender<String>, Receiver<String>) = channel();
-    //our channel for sending and receiving any updates to cpu memory
+    //our channel for sending and receiving any updates to cpu memory(wram)
     let (mem_tx, mem_rx): (Sender<(usize, u8)>, Receiver<(usize, u8)>) = channel();
     //our channnel for sending and recieving cpu snapshots AS A SIMPLE STRING
     let (cpu_tx, cpu_rx): (Sender<Vec<String>>, Receiver<Vec<String>>) = channel();
 
     //make our cpu :D
-    let mut cpu = Cpu::new(mem_tx);
+    let mut cpu = Cpu::new();
+    //make our wram
+    let wram = Wram::new();
     //make our "cart"
     let cart = Cart::new(rom_file[0x10..=0x400f].to_vec());
     //set PC to 0xc000
@@ -57,10 +59,11 @@ fn main() {
     let channels = nes::Channels {
         log_channel: log_tx,
         cpu_channel: cpu_tx,
+        wram_channel: mem_tx,
     };
 
     //make our full system
-    let mut nes = NES::new(cpu, cart, channels);
+    let mut nes = NES::new(cpu, cart, wram, channels);
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
     let mut tui = crate::tui::setup_tui(&mut nes);
@@ -69,7 +72,9 @@ fn main() {
 
     thread::spawn(move || nes.run(log));
 
-    'running: loop {
+    //NOTE: you will need this lifetime for the sdl loop. adding it lets us break out of our main program loop
+    //'running: loop {
+    loop {
         let mut step_running = false;
         tui.with_user_data(|s: &mut crate::tui::AppState| {
             if s.is_running {
@@ -90,7 +95,7 @@ fn main() {
                 Ok(v) => tui
                     .call_on_name("cpu", |view: &mut CpuView| view.update(v))
                     .unwrap(),
-                Err(e) => {}
+                Err(_e) => {}
             }
 
             //read any pending ram updates into a vector
