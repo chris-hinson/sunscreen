@@ -1,5 +1,4 @@
-use crate::my_views::BufferView;
-use crate::my_views::UltraHexaView;
+use crate::my_views::{BufferView, CpuView, UltraHexaView};
 use cursive::theme::{BaseColor::*, BorderStyle, Color::*, Palette, Theme};
 use cursive::traits::Nameable;
 use cursive::view::SizeConstraint;
@@ -53,7 +52,13 @@ pub fn setup_tui(system: &mut crate::nes::NES) -> cursive::CursiveRunner<cursive
         BufferView::new(75).with_name("log"),
     );
 
-    let cpu_state = ResizedView::new(SizeConstraint::Full, SizeConstraint::Full, DummyView);
+    let cpu_view = ResizedView::new(
+        SizeConstraint::Full,
+        SizeConstraint::Full,
+        crate::my_views::CpuView::new(&system.cpu).with_name("cpu"),
+    );
+
+    let cpu_state = ResizedView::new(SizeConstraint::Full, SizeConstraint::Full, cpu_view);
 
     let ppu_view = ResizedView::new(SizeConstraint::Full, SizeConstraint::Full, DummyView);
     let apu_view = ResizedView::new(SizeConstraint::Full, SizeConstraint::Fixed(7), DummyView);

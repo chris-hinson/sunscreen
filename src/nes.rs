@@ -2,6 +2,7 @@ use crate::cart::Cart;
 use crate::cpu::Cpu;
 use crate::instr::Instr;
 use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex};
 
 use std::fs;
 
@@ -24,6 +25,7 @@ pub enum AddrMode {
 
 pub struct Channels {
     pub log_channel: Sender<String>,
+    pub cpu_channel: Sender<Vec<String>>,
 }
 
 pub struct NES {
@@ -63,25 +65,44 @@ impl NES {
     pub fn run(&mut self, mut log: Vec<String>) {
         loop {
             //TODO: spinning is bad, but works for debugging ig
+            //look into replacing this with a condvar?
             if self.running {
-                //get the next log line
-                let good_line = log.pop().unwrap();
-                //get our log line by stepping the system
-                let our_line = self.step();
-                //send our log line to the rendering thread
-                self.channels
-                    .log_channel
-                    .send(our_line.clone().unwrap())
-                    .unwrap();
-                //if the lines arent equal, write to errorlog.log and break our running loop
-                if !good_line.eq(our_line.as_ref().unwrap()) {
-                    fs::write(
-                        "./errorlog.log",
-                        format!("good: {}\nbad:  {}", good_line, our_line.unwrap()),
-                    )
-                    .expect("Unable to write file");
-                    break;
+                if !self.breakpoints.contains(&(self.cpu.PC as usize)) {
+                    //get the next log line
+                    let good_line = log.pop().unwrap();
+                    //get our log line by stepping the system
+                    let our_line = self.step();
+                    //send our log line to the rendering thread
+                    self.channels
+                        .log_channel
+                        .send(our_line.clone().unwrap())
+                        .unwrap();
+                    //if the lines arent equal, write to errorlog.log and break our running loop
+                    if !good_line.eq(our_line.as_ref().unwrap()) {
+                        fs::write(
+                            "./errorlog.log",
+                            format!("good: {}\nbad:  {}", good_line, our_line.unwrap()),
+                        )
+                        .expect("Unable to write file");
+                        //break;
+                        //send our tui a cpu snapshot when we halt
+                        self.channels.cpu_channel.send(self.cpu.fmt_for_tui());
+                        self.channels
+                            .log_channel
+                            .send("HALTING EXECUTION BECAUSE WE FAILED LOG COMPARISON".to_string());
+                        self.running = false;
+                    }
+                //if we hit a breakpoint, halt execution
+                } else {
+                    self.channels
+                        .log_channel
+                        .send(format!("HIT BREAKPOINT AT PC = {:04X}", self.cpu.PC))
+                        .unwrap();
+                    self.running = false;
                 }
+            }
+            //we are in a break-ed state, just waiting to receive the go-ahead to resume execution
+            else {
             }
         }
     }

@@ -1,3 +1,4 @@
+use crate::cpu::{Cpu, SR};
 use cursive::direction::Direction;
 use cursive::event::*;
 use cursive::theme;
@@ -14,7 +15,6 @@ use std::borrow::Borrow;
 // Let's define a buffer view, that shows the last lines from a stream.
 //NOTE: this was stolen from the cursive logs.rs example, but i made it not async bc i dont like async
 pub struct BufferView {
-    // We'll use a ring buffer
     buffer: Vec<String>,
 }
 
@@ -241,5 +241,33 @@ impl View for UltraHexaView {
 
     fn take_focus(&mut self, _: Direction) -> Result<EventResult, CannotFocus> {
         return Ok(EventResult::consumed());
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+//TODO: is there any way we can cheapen this to the point that we can call it every frame?
+//would need some way to only change some values?
+#[allow(non_snake_case)]
+pub struct CpuView {
+    pub state: Vec<String>,
+}
+
+impl CpuView {
+    pub fn new(init: &Cpu) -> Self {
+        CpuView {
+            state: init.fmt_for_tui(),
+        }
+    }
+    pub fn update(&mut self, cpu_state: Vec<String>) {
+        self.state = cpu_state;
+    }
+}
+
+impl View for CpuView {
+    fn draw(&self, printer: &Printer) {
+        for (i, v) in self.state.iter().enumerate() {
+            printer.print((0, i), v);
+        }
     }
 }
