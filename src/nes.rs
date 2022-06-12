@@ -66,31 +66,41 @@ impl NES {
         }
     }
 
+    pub fn add_watchpoint(&mut self, addr: usize) {
+        self.watchpoints.push(addr);
+    }
+
     //function to run this system in its own thread, takes a SENDER channel to return logs on to the rendering thread
     pub fn run(&mut self, mut log: Vec<String>) {
         loop {
             //TODO: spinning is bad, but works for debugging ig
             //look into replacing this with a condvar?
             if self.running {
-                if !self.breakpoints.contains(&(self.cpu.PC as usize)) {
+                //if we hit a breakpoint, halt execution
+                if self.breakpoints.contains(&(self.cpu.PC as usize)) {
+                    self.channels
+                        .log_channel
+                        .send(format!("HIT BREAKPOINT AT PC = {:04X}", self.cpu.PC))
+                        .unwrap();
+                    self.running = false;
+                } else {
                     //get the next log line
                     let good_line = log.pop().unwrap();
                     //get our log line by stepping the system
                     let our_line = self.step();
-                    //send our log line to the rendering thread
+                    //send OUR log line to the rendering thread
                     self.channels
                         .log_channel
                         .send(our_line.clone().unwrap())
                         .unwrap();
-                    //if the lines arent equal, write to errorlog.log and break our running loop
+                    //if the lines arent equal, write to errorlog.log and halt our system for debugging
                     if !good_line.eq(our_line.as_ref().unwrap()) {
                         fs::write(
                             "./errorlog.log",
                             format!("good: {}\nbad:  {}", good_line, our_line.unwrap()),
                         )
                         .expect("Unable to write file");
-                        //break;
-                        //send our tui a cpu snapshot when we halt
+                        //send our tui a cpu snapshot and halt
                         self.channels
                             .cpu_channel
                             .send(self.cpu.fmt_for_tui())
@@ -101,16 +111,10 @@ impl NES {
                             .unwrap();
                         self.running = false;
                     }
-                //if we hit a breakpoint, halt execution
-                } else {
-                    self.channels
-                        .log_channel
-                        .send(format!("HIT BREAKPOINT AT PC = {:04X}", self.cpu.PC))
-                        .unwrap();
-                    self.running = false;
                 }
             }
             //we are in a break-ed state, just waiting to receive the go-ahead to resume execution
+            //TODO: figure out some way to resume execution lmao. maybe a single channel to the system from the tui?
             else {
             }
         }
@@ -347,7 +351,7 @@ impl NES {
                     0x61 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring),
                     0x71 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring),
                     _ => {
-                        unimplemented!("IN ADC, BUT GOT INVALID OPCODE")
+                        unreachable!("IN ADC, BUT GOT INVALID OPCODE")
                     }
                 };
 
@@ -1380,6 +1384,16 @@ impl NES {
     //to handle reads to other parts of the system, we must pass in refs to every other component
     //read n bytes from address a
     pub fn read(&mut self, addr: u16, length: usize) -> Vec<u8> {
+        for a in addr as usize..=(addr as usize + length) {
+            if self.watchpoints.contains(&(a as usize)) {
+                self.running = false;
+                self.channels
+                    .log_channel
+                    .send("HALTING BC WE HIT A MEMORY WATCHPOINT".to_string())
+                    .unwrap();
+            }
+        }
+
         match addr {
             //WRAM(2kb) + 3 mirrors
             0x0000..=0x1FFF => {
@@ -1415,6 +1429,16 @@ impl NES {
         }
     }
     pub fn write(&mut self, addr: u16, bytes: &Vec<u8>) {
+        for a in addr as usize..=(addr as usize + bytes.len()) {
+            if self.watchpoints.contains(&(a as usize)) {
+                self.running = false;
+                self.channels
+                    .log_channel
+                    .send("HALTING BC WE HIT A MEMORY WATCHPOINT".to_string())
+                    .unwrap();
+            }
+        }
+
         match addr {
             //WRAM(2kb) + 3 mirrors
             0x0000..=0x1FFF => {

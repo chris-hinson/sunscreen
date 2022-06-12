@@ -64,6 +64,7 @@ fn main() {
 
     //make our full system
     let mut nes = NES::new(cpu, cart, wram, channels);
+    nes.add_watchpoint(0x0180);
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
     let mut tui = crate::tui::setup_tui(&mut nes);

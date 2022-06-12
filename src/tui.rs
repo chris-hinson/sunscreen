@@ -92,7 +92,7 @@ pub fn setup_tui(system: &mut crate::nes::NES) -> cursive::CursiveRunner<cursive
         );
 
     let bottom_level = LinearLayout::horizontal()
-        .child(Dialog::around(ram_view).title("VRAM"))
+        .child(Dialog::around(ram_view).title("WRAM"))
         .child(Dialog::around(rom_view).title("ROM"));
     //.child(Dialog::around(chr_view).title("CHR"));
 
