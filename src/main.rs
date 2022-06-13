@@ -46,6 +46,8 @@ fn main() {
     //our channnel for sending and recieving cpu snapshots AS A SIMPLE STRING
     let (cpu_tx, cpu_rx): (Sender<Vec<String>>, Receiver<Vec<String>>) = channel();
 
+    let (nes_tx, nes_rx): (Sender<NES>, Receiver<NES>) = channel();
+
     //make our cpu :D
     let mut cpu = Cpu::new();
     //make our wram
