@@ -1,7 +1,8 @@
 use std::fmt;
 
 #[allow(non_snake_case)]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+
 pub struct Cpu {
     pub PC: u16,
     pub ACC: u8,
@@ -9,11 +10,6 @@ pub struct Cpu {
     pub Y: u8,
     pub SR: SR,
     pub SP: u8,
-    //TODO: should this be part of the cpu or should we put it somewhere else?
-    //TODO: i am refactoring this rn, it is going into the NES
-    //pub WRAM: [u8; 2048],
-    //no more channels in the cpu. only the system should be communicating with the tui
-    //pub mem_channel: Sender<(usize, u8)>,
 }
 
 //this is how we print our cpu status for comparing against nestest

@@ -3,6 +3,7 @@ use crate::cpu::Cpu;
 use crate::instr::Instr;
 use crate::wram::Wram;
 use std::sync::mpsc::Sender;
+use std::sync::{Arc, Condvar, Mutex};
 
 use std::fs;
 
@@ -25,12 +26,13 @@ pub enum AddrMode {
     ZPGY,
 }
 
-pub struct Channels {
+/*pub struct Channels {
     pub log_channel: Sender<String>,
     pub cpu_channel: Sender<Vec<String>>,
     pub wram_channel: Sender<(usize, u8)>,
-}
+}*/
 
+#[derive(Clone)]
 pub struct NES {
     //components
     pub cpu: Cpu,
@@ -43,8 +45,10 @@ pub struct NES {
 
     //data about the system
     pub cycles: u128,
-    pub channels: Channels,
-    pub running: bool,
+    //pub running_pair: Arc<(Mutex<bool>, Condvar)>,
+    pub log_channel: Sender<String>,
+    pub nes_channel: Sender<NES>,
+
     //breakpoints halt execution when our PC equals that value
     pub breakpoints: Vec<usize>,
     //watchpoints halt execution when a write goes to that address
@@ -52,47 +56,69 @@ pub struct NES {
 }
 
 impl NES {
-    pub fn new(cpu: Cpu, cart: Cart, wram: Wram, channels: Channels) -> NES {
+    pub fn new(
+        cpu: Cpu,
+        cart: Cart,
+        wram: Wram,
+        log_channel: Sender<String>,
+        nes_channel: Sender<NES>,
+    ) -> NES {
         NES {
             cpu,
             cart,
             wram,
             cycles: 7, //from intial reset vector
             instr_data: Instr::new(),
-            channels,
-            running: true,
+            //running_pair: pair,
             breakpoints: Vec::new(),
             watchpoints: Vec::new(),
+            log_channel,
+            nes_channel,
         }
     }
 
     pub fn add_watchpoint(&mut self, addr: usize) {
         self.watchpoints.push(addr);
     }
+    pub fn add_breakpoint(&mut self, addr: usize) {
+        self.breakpoints.push(addr);
+    }
 
     //function to run this system in its own thread, takes a SENDER channel to return logs on to the rendering thread
-    pub fn run(&mut self, mut log: Vec<String>) {
+    pub fn run(&mut self, mut log: Vec<String>, pair: Arc<(Mutex<bool>, Condvar, Condvar)>) {
+        //before we ever start running, set our running predicate to true
+        let mut running = pair.0.lock().unwrap();
+        *running = true;
+        //drop the mutexgaurd so the frontend can modify it
+        drop(running);
+        //tell the frontend that the value has changed
+        pair.1.notify_all();
+
+        //endless running loop
         loop {
-            //TODO: spinning is bad, but works for debugging ig
-            //look into replacing this with a condvar?
-            if self.running {
-                //if we hit a breakpoint, halt execution
-                if self.breakpoints.contains(&(self.cpu.PC as usize)) {
-                    self.channels
-                        .log_channel
-                        .send(format!("HIT BREAKPOINT AT PC = {:04X}", self.cpu.PC))
-                        .unwrap();
-                    self.running = false;
+            let mut halt = false;
+            //if running {
+            //if we hit a breakpoint, halt execution
+            if self.breakpoints.contains(&(self.cpu.PC as usize)) {
+                self.log_channel
+                    .send(format!("HIT BREAKPOINT AT PC = {:04X}", self.cpu.PC))
+                    .unwrap();
+
+                //remove every time this breakpoint was added so we dont hit it again
+                self.breakpoints.retain(|e| *e != self.cpu.PC as usize);
+
+                halt = true;
+            } else {
+                //get the next log line
+                let good_line = log.pop().unwrap();
+                //get our log line by stepping the system
+                let our_line = self.step();
+                //if step returned an error
+                if our_line.is_err() {
+                    halt = true;
                 } else {
-                    //get the next log line
-                    let good_line = log.pop().unwrap();
-                    //get our log line by stepping the system
-                    let our_line = self.step();
                     //send OUR log line to the rendering thread
-                    self.channels
-                        .log_channel
-                        .send(our_line.clone().unwrap())
-                        .unwrap();
+                    self.log_channel.send(our_line.clone().unwrap()).unwrap();
                     //if the lines arent equal, write to errorlog.log and halt our system for debugging
                     if !good_line.eq(our_line.as_ref().unwrap()) {
                         fs::write(
@@ -101,21 +127,35 @@ impl NES {
                         )
                         .expect("Unable to write file");
                         //send our tui a cpu snapshot and halt
-                        self.channels
-                            .cpu_channel
-                            .send(self.cpu.fmt_for_tui())
-                            .unwrap();
-                        self.channels
-                            .log_channel
+                        /*self.channels
+                        .cpu_channel
+                        .send(self.cpu.fmt_for_tui())
+                        .unwrap();*/
+                        self.log_channel
                             .send("HALTING EXECUTION BECAUSE WE FAILED LOG COMPARISON".to_string())
                             .unwrap();
-                        self.running = false;
+                        halt = true;
                     }
                 }
             }
-            //we are in a break-ed state, just waiting to receive the go-ahead to resume execution
-            //TODO: figure out some way to resume execution lmao. maybe a single channel to the system from the tui?
-            else {
+
+            if halt {
+                let (lock, cvar1, cvar2) = &*pair;
+                //update our predicate
+                //let mut running = pair.0.lock().unwrap();
+                let mut running = lock.lock().unwrap();
+                *running = false;
+                //drop our mutex so that it may be accquired by the frontend
+                drop(running);
+                //tell the frontend that there has been an update to the preciate
+                cvar1.notify_all();
+                //DONT FORGET TO SEND A CPU SNAPSHOT TO THE FRONEND
+                self.nes_channel.send(self.clone()).unwrap();
+                //block this thread until the tui says we can go again
+                // As long as the value inside the `Mutex<bool>` is `FALSE`, we wait.
+                let _guard = cvar2
+                    .wait_while(lock.lock().unwrap(), |pending| !*pending)
+                    .unwrap();
             }
         }
     }
@@ -296,7 +336,7 @@ impl NES {
     pub fn step(&mut self) -> Result<String, String> {
         //if we are at a breakpoint, take no action, and set our running flag to false
         if self.breakpoints.contains(&(self.cpu.PC as usize)) {
-            self.running = false;
+            //self.running = false;
             return Err("Hit breakpoint".to_owned());
         }
 
@@ -1386,11 +1426,11 @@ impl NES {
     pub fn read(&mut self, addr: u16, length: usize) -> Vec<u8> {
         for a in addr as usize..=(addr as usize + length) {
             if self.watchpoints.contains(&(a as usize)) {
-                self.running = false;
-                self.channels
-                    .log_channel
-                    .send("HALTING BC WE HIT A MEMORY WATCHPOINT".to_string())
-                    .unwrap();
+                //self.running = false;
+                /*self.channels
+                .log_channel
+                .send("HALTING BC WE HIT A MEMORY WATCHPOINT".to_string())
+                .unwrap();*/
             }
         }
 
@@ -1431,11 +1471,11 @@ impl NES {
     pub fn write(&mut self, addr: u16, bytes: &Vec<u8>) {
         for a in addr as usize..=(addr as usize + bytes.len()) {
             if self.watchpoints.contains(&(a as usize)) {
-                self.running = false;
-                self.channels
-                    .log_channel
-                    .send("HALTING BC WE HIT A MEMORY WATCHPOINT".to_string())
-                    .unwrap();
+                //self.running = false;
+                /*self.channels
+                .log_channel
+                .send("HALTING BC WE HIT A MEMORY WATCHPOINT".to_string())
+                .unwrap();*/
             }
         }
 
@@ -1448,10 +1488,10 @@ impl NES {
                     //write value into ram
                     self.wram.contents[(base_addr as usize) + i] = *b;
                     //make sure we also send this value to the frontend
-                    self.channels
-                        .wram_channel
-                        .send((((base_addr as usize) + i), *b))
-                        .unwrap();
+                    /*self.channels
+                    .wram_channel
+                    .send((((base_addr as usize) + i), *b))
+                    .unwrap();*/
                 }
             }
             //PPU control regs (8 bytes) + a fuckton of mirrors

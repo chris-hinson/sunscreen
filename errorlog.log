@@ -1,2 +1,2 @@
-good: CE1E  AD 80 01  LDA $0180 = 33                  A:33 X:80 Y:01 P:  N:0 V:0 B:10 D:0 I:1 Z:0 C:1  SP:80  CYC:1996
-bad:  CE1E  AD 80 01  LDA $0180 = 00                  A:00 X:80 Y:01 P:  N:0 V:0 B:10 D:0 I:1 Z:1 C:1  SP:80  CYC:1996
+good: CE60  A9 CE     LDA #$CE                        A:CE X:80 Y:01 P:  N:1 V:0 B:10 D:0 I:1 Z:0 C:1  SP:80  CYC:2074
+bad:  CE66  60        RTS                             A:66 X:47 Y:01 P:  N:0 V:0 B:10 D:0 I:1 Z:0 C:1  SP:7F  CYC:2078

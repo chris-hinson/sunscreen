@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+#[derive(Clone)]
+
 pub struct InstrData {
     //printable name
     pub name: String,
@@ -17,6 +19,8 @@ impl InstrData {
         };
     }
 }
+
+#[derive(Clone)]
 
 pub struct Instr {
     //hashmap of opcode to instr data

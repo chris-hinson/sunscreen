@@ -1,4 +1,5 @@
 use crate::my_views::{BufferView, CpuView, UltraHexaView};
+use crate::nes::NES;
 use cursive::theme::{BaseColor::*, BorderStyle, Color::*, Palette, Theme};
 use cursive::traits::Nameable;
 use cursive::view::SizeConstraint;
@@ -6,6 +7,7 @@ use cursive::views::{Dialog, DummyView, LinearLayout, ResizedView};
 
 pub struct AppState {
     pub is_running: bool,
+    pub nes_state: NES,
 }
 pub fn setup_tui(system: &mut crate::nes::NES) -> cursive::CursiveRunner<cursive::CursiveRunnable> {
     //main structs
@@ -13,7 +15,10 @@ pub fn setup_tui(system: &mut crate::nes::NES) -> cursive::CursiveRunner<cursive
     let mut our_runner = cur.into_runner();
 
     //app state and our cpu
-    let app_state = AppState { is_running: true };
+    let app_state = AppState {
+        is_running: true,
+        nes_state: system.clone(),
+    };
 
     //our TUI needs an app state so we can update our cpu accordingly
     our_runner.set_user_data(app_state);
