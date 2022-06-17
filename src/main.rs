@@ -4,7 +4,7 @@
 use std::fs;
 use std::time::Duration;
 
-use my_views::CpuView;
+use my_views::{CpuView, UltraHexaView};
 
 mod cart;
 mod cpu;
@@ -35,6 +35,7 @@ fn main() {
     log.remove(0);
     //reverse the log so we can pop values from it
     log = log.into_iter().rev().collect();
+    assert_ne!(log.len(), 0);
 
     //load our rom
     let filename = "./test-roms/nestest/nestest.nes";
@@ -77,76 +78,63 @@ fn main() {
 
     let mut tui = crate::tui::setup_tui(&mut nes);
 
-    thread::spawn(move || nes.run(log, pair2));
+    thread::Builder::new()
+        .name("runner".to_string())
+        .spawn(move || nes.run(log, pair2))
+        .unwrap();
 
-    //NOTE: you will need this lifetime for the sdl loop. adding it lets us break out of our main program loop
-    //'running: loop {
-    let mut tui_running = true;
+    let mut cur_nes: NES = tui
+        .with_user_data(|s: &mut crate::tui::AppState| s.nes_state.clone())
+        .unwrap();
+
     loop {
-        /*let mut step_running = false;
-        tui.with_user_data(|s: &mut crate::tui::AppState| {
-            if s.is_running {
-                step_running = true;
-            }
-        });*/
+        //only do our draw loop if the appstate is NOT running
+        if !tui
+            .with_user_data(|s: &mut crate::tui::AppState| s.is_running)
+            .unwrap()
+        {
+            //get all pending log lines and append them to the buffer view
+            let mut pending_logs: Vec<String> = log_rx.try_iter().collect();
+            tui.call_on_name("log", |view: &mut crate::my_views::BufferView| {
+                view.update(&mut pending_logs)
+            });
 
-        //only render cpu data if we are CURRENTLY IN A BREAK STATE
-        //if step_running {
-        //get all pending log lines and append them to the buffer view
-        let mut pending_logs: Vec<String> = log_rx.try_iter().collect();
-        tui.call_on_name("log", |view: &mut crate::my_views::BufferView| {
-            view.update(&mut pending_logs)
-        });
+            //cpu
+            tui.call_on_name("cpu", |view: &mut CpuView| {
+                view.update(cur_nes.cpu.fmt_for_tui())
+            });
+            //wram
+            tui.call_on_name("wram", |view: &mut UltraHexaView| {
+                view.set_data(&mut cur_nes.wram.contents.to_vec());
+            });
+            //ppu
+            //apu
 
-        /*
-        //we will only be getting a cpu snapshot if we are halted
-        match cpu_rx.try_recv() {
-            Ok(v) => tui
-                .call_on_name("cpu", |view: &mut CpuView| view.update(v))
-                .unwrap(),
-            Err(_e) => {}
-        }
+            //refresh the view
+            let _tui_event_received = tui.step();
+            tui.refresh();
+        } else {
+            //set the predicate to be true so the system begins running
+            let mut is_running = pair.0.lock().unwrap();
+            *is_running = true;
+            drop(is_running);
+            //also let the system know that it can start running
+            pair.2.notify_all();
 
-        //read any pending ram updates into a vector
-        let pending_vram_data: Vec<(usize, u8)> = mem_rx.try_iter().collect();
-        tui.call_on_name("ram_view", |view: &mut crate::my_views::UltraHexaView| {
-            view.update_data(pending_vram_data);
-        });*/
-        //TODO: we also need to get -
-        //ppu data
-        //apu data
-        //}
-
-        let _tui_event_received = tui.step();
-        tui.refresh();
-
-        //if our local running flag has been set to false,
-        if !tui_running {
-            //halt until our runner thread gives us the ok
+            //halt until condvar 1 receives a notification and running is false, meaning we can debug
             let _guard = pair
                 .1
-                .wait_while(pair.0.lock().unwrap(), |pending| *pending)
+                .wait_while(pair.0.lock().unwrap(), |nes_running| *nes_running)
                 .unwrap();
-            tui_running = true;
-
-            //as soon as we get a wakeup, block until we receive a new system state to inspect
-            /*let nes_state = nes_rx.recv_timeout(Duration::new(1, 0)).unwrap();
-            tui.with_user_data(|s: &mut crate::tui::AppState| {
-                s.nes_state = nes_state;
-            });*/
-        } else {
-            //make sure we havent gotten a resume callback, before we go to next main loop iteration
-
-            tui.with_user_data(|s: &mut crate::tui::AppState| {
-                if !s.is_running {
-                    tui_running = false;
-                } else {
-                    let mut running = pair.0.lock().unwrap();
-                    *running = true;
-                    drop(running);
-                    pair.2.notify_all();
-                }
-            });
+            //now we have returned to this thread
+            tui.with_user_data(|s: &mut crate::tui::AppState| s.is_running = true);
         }
+
+        //as soon as we get a wakeup, block until we receive a new system state to inspect
+        /*let nes_state = nes_rx.try_recv().unwrap();
+        tui.with_user_data(|s: &mut crate::tui::AppState| {
+            s.nes_state = nes_state.clone();
+            cur_nes = nes_state;
+        });*/
     }
 }

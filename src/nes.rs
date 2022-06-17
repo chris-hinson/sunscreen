@@ -7,7 +7,7 @@ use std::sync::{Arc, Condvar, Mutex};
 
 use std::fs;
 
-use std::fmt::Write;
+use std::fmt::{format, Write};
 
 //TODO: remove this allow once we finish implementing all addressing modes
 #[allow(dead_code)]
@@ -97,9 +97,8 @@ impl NES {
         //endless running loop
         loop {
             let mut halt = false;
-            //if running {
             //if we hit a breakpoint, halt execution
-            if self.breakpoints.contains(&(self.cpu.PC as usize)) {
+            /*if self.breakpoints.contains(&(self.cpu.PC as usize)) {
                 self.log_channel
                     .send(format!("HIT BREAKPOINT AT PC = {:04X}", self.cpu.PC))
                     .unwrap();
@@ -126,23 +125,47 @@ impl NES {
                             format!("good: {}\nbad:  {}", good_line, our_line.unwrap()),
                         )
                         .expect("Unable to write file");
-                        //send our tui a cpu snapshot and halt
-                        /*self.channels
-                        .cpu_channel
-                        .send(self.cpu.fmt_for_tui())
-                        .unwrap();*/
                         self.log_channel
                             .send("HALTING EXECUTION BECAUSE WE FAILED LOG COMPARISON".to_string())
                             .unwrap();
                         halt = true;
                     }
                 }
+            }*/
+            fs::write(
+                "./helpmegodplease.log",
+                format!("{} lines remaining", log.len()),
+            )
+            .unwrap();
+            let good_line = match log.pop() {
+                Some(v) => v,
+                None => panic!("log file is {} lines long", log.len()),
+            };
+            match self.step() {
+                Ok(our_line) => {
+                    if !good_line.eq(&our_line) {
+                        self.log_channel
+                            .send("HALTING BC LOG MISMATCH".to_string())
+                            .unwrap();
+                        fs::write(
+                            "./errorlog.log",
+                            format!("good: {}\nbad:  {}", good_line, our_line),
+                        )
+                        .unwrap();
+                        halt = true;
+                    } else {
+                        self.log_channel.send(our_line).unwrap();
+                    }
+                }
+                Err(error_string) => {
+                    self.log_channel.send(error_string).unwrap();
+                    halt = true;
+                }
             }
 
             if halt {
                 let (lock, cvar1, cvar2) = &*pair;
                 //update our predicate
-                //let mut running = pair.0.lock().unwrap();
                 let mut running = lock.lock().unwrap();
                 *running = false;
                 //drop our mutex so that it may be accquired by the frontend
@@ -150,12 +173,10 @@ impl NES {
                 //tell the frontend that there has been an update to the preciate
                 cvar1.notify_all();
                 //DONT FORGET TO SEND A CPU SNAPSHOT TO THE FRONEND
-                self.nes_channel.send(self.clone()).unwrap();
-                //block this thread until the tui says we can go again
-                // As long as the value inside the `Mutex<bool>` is `FALSE`, we wait.
-                let _guard = cvar2
-                    .wait_while(lock.lock().unwrap(), |pending| !*pending)
-                    .unwrap();
+                //self.nes_channel.send(self.clone()).unwrap();
+                //Blocks the current thread until this condition variable receives a notification and the provided condition is false.
+                let running = lock.lock().unwrap();
+                let _guard = cvar2.wait_while(running, |pending| !*pending).unwrap();
             }
         }
     }
