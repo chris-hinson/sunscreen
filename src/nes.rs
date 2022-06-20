@@ -86,64 +86,37 @@ impl NES {
 
     //function to run this system in its own thread, takes a SENDER channel to return logs on to the rendering thread
     pub fn run(&mut self, mut log: Vec<String>, pair: Arc<(Mutex<bool>, Condvar, Condvar)>) {
+        let mut counter = log.len() - 1;
+
         //before we ever start running, set our running predicate to true
-        let mut running = pair.0.lock().unwrap();
-        *running = true;
+        //let mut running = pair.0.lock().unwrap();
+        //*running = true;
         //drop the mutexgaurd so the frontend can modify it
-        drop(running);
+        //drop(running);
         //tell the frontend that the value has changed
-        pair.1.notify_all();
+        //pair.1.notify_all();
+
+        assert_ne!(log.len(), 0);
+
+        let mut halt = false;
 
         //endless running loop
         loop {
-            let mut halt = false;
-            //if we hit a breakpoint, halt execution
-            /*if self.breakpoints.contains(&(self.cpu.PC as usize)) {
-                self.log_channel
-                    .send(format!("HIT BREAKPOINT AT PC = {:04X}", self.cpu.PC))
-                    .unwrap();
-
-                //remove every time this breakpoint was added so we dont hit it again
-                self.breakpoints.retain(|e| *e != self.cpu.PC as usize);
-
-                halt = true;
-            } else {
-                //get the next log line
-                let good_line = log.pop().unwrap();
-                //get our log line by stepping the system
-                let our_line = self.step();
-                //if step returned an error
-                if our_line.is_err() {
-                    halt = true;
-                } else {
-                    //send OUR log line to the rendering thread
-                    self.log_channel.send(our_line.clone().unwrap()).unwrap();
-                    //if the lines arent equal, write to errorlog.log and halt our system for debugging
-                    if !good_line.eq(our_line.as_ref().unwrap()) {
-                        fs::write(
-                            "./errorlog.log",
-                            format!("good: {}\nbad:  {}", good_line, our_line.unwrap()),
-                        )
-                        .expect("Unable to write file");
-                        self.log_channel
-                            .send("HALTING EXECUTION BECAUSE WE FAILED LOG COMPARISON".to_string())
-                            .unwrap();
-                        halt = true;
-                    }
-                }
-            }*/
+            assert_ne!(counter, 0);
             fs::write(
                 "./helpmegodplease.log",
                 format!("{} lines remaining", log.len()),
             )
             .unwrap();
-            let good_line = match log.pop() {
+            /*let good_line = match log.pop() {
                 Some(v) => v,
-                None => panic!("log file is {} lines long", log.len()),
-            };
+                None => panic!("log file is empty???"),
+            };*/
+            let good_line = &log[counter];
             match self.step() {
                 Ok(our_line) => {
                     if !good_line.eq(&our_line) {
+                        //panic!("line mismatch");
                         self.log_channel
                             .send("HALTING BC LOG MISMATCH".to_string())
                             .unwrap();
@@ -154,6 +127,8 @@ impl NES {
                         .unwrap();
                         halt = true;
                     } else {
+                        //panic!("aaaaaaaaaaaa?");
+                        fs::write("./mylog.log", format!("{}\n", our_line)).unwrap();
                         self.log_channel.send(our_line).unwrap();
                     }
                 }
@@ -164,20 +139,26 @@ impl NES {
             }
 
             if halt {
-                let (lock, cvar1, cvar2) = &*pair;
-                //update our predicate
+                let (lock, tui_condvar, nes_condvar) = &*pair;
+                //update our predicate to false so the tui can start running
                 let mut running = lock.lock().unwrap();
                 *running = false;
                 //drop our mutex so that it may be accquired by the frontend
                 drop(running);
                 //tell the frontend that there has been an update to the preciate
-                cvar1.notify_all();
+                tui_condvar.notify_all();
                 //DONT FORGET TO SEND A CPU SNAPSHOT TO THE FRONEND
                 //self.nes_channel.send(self.clone()).unwrap();
                 //Blocks the current thread until this condition variable receives a notification and the provided condition is false.
-                let running = lock.lock().unwrap();
-                let _guard = cvar2.wait_while(running, |pending| !*pending).unwrap();
+                let guard = nes_condvar
+                    .wait_while(lock.lock().unwrap(), |pending| *pending == false)
+                    .unwrap();
+                drop(guard);
+                drop(lock);
+                //panic!("end of halt in nes");
+                halt = false;
             }
+            counter = counter.saturating_sub(1);
         }
     }
 
@@ -1424,7 +1405,6 @@ impl NES {
             self.cpu, self.cycles
         )
         .unwrap();
-        //println!("{stepstring}");
         return Ok(stepstring);
     }
 

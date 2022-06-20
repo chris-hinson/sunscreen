@@ -16,7 +16,7 @@ pub fn setup_tui(system: &mut crate::nes::NES) -> cursive::CursiveRunner<cursive
 
     //app state and our cpu
     let app_state = AppState {
-        is_running: true,
+        is_running: false,
         nes_state: system.clone(),
     };
 
