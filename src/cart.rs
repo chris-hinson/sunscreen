@@ -1,3 +1,4 @@
+#[derive(Clone)]
 pub struct Cart {
     pub prg_rom: Vec<u8>,
 }

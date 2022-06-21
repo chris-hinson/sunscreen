@@ -1,3 +1,4 @@
+#[derive(Clone)]
 pub struct Wram {
     pub contents: [u8; 2048],
 }
