@@ -172,6 +172,19 @@ impl Instr {
             (0x0E, InstrData::new("ASL", 3, 6)),
             (0x1E, InstrData::new("ASL", 3, 7)),
             (0x58, InstrData::new("CLI", 1, 2)),
+            (0x84, InstrData::new("STY", 2, 3)),
+            (0x94, InstrData::new("STY", 2, 4)),
+            (0x8C, InstrData::new("STY", 3, 4)),
+            (0x2A, InstrData::new("ROL", 1, 2)),
+            (0x26, InstrData::new("ROL", 2, 5)),
+            (0x36, InstrData::new("ROL", 2, 6)),
+            (0x2E, InstrData::new("ROL", 3, 6)),
+            (0x3E, InstrData::new("ROL", 3, 7)),
+            (0x6A, InstrData::new("ROR", 1, 2)),
+            (0x66, InstrData::new("ROR", 2, 5)),
+            (0x76, InstrData::new("ROR", 2, 6)),
+            (0x6E, InstrData::new("ROR", 3, 6)),
+            (0x7E, InstrData::new("ROR", 3, 7)),
         ]);
 
         Instr { instrs: map }

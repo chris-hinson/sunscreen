@@ -4,8 +4,8 @@ use crate::instr::Instr;
 use crate::wram::Wram;
 
 //use pretty_assertions::{assert_eq, assert_ne};
-use pretty_assertions::Comparison;
-use sdl2::render::SurfaceCanvas;
+//use pretty_assertions::Comparison;
+//use sdl2::render::SurfaceCanvas;
 
 use std::fmt::Write;
 
@@ -239,7 +239,7 @@ impl NES {
         // addr mode, otherwise we could just always calc addr and read a byte
         return match mode {
             AddrMode::ACC => {
-                write!(stepstring, "A");
+                write!(stepstring, "A").unwrap();
                 self.cpu.ACC
             }
             AddrMode::ABS => {
@@ -1247,7 +1247,112 @@ impl NES {
 
             /*
             ROL rotate left
+                accumulator	ROL A	2A	1	2
+                zeropage	ROL oper	26	2	5
+                zeropage,X	ROL oper,X	36	2	6
+                absolute	ROL oper	2E	3	6
+                absolute,X	ROL oper,X	3E	3	7  */
+            0x2A | 0x26 | 0x36 | 0x2E | 0x3E => {
+                let mut val: u8 = match instr {
+                    0x2A => self.get_val(&bytes, AddrMode::ACC, &mut stepstring),
+                    0x26 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
+                    0x36 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
+                    0x2E => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
+                    0x3E => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
+                    _ => unreachable!("IN ROL BUT GOT BAD OP"),
+                };
+
+                //ROL shifts all bits left one position.
+                //The Carry is shifted into bit 0 and the original bit 7 is shifted into the Carry.
+                let new_c: bool = (val & 0x80) == 0x80;
+                val = val.rotate_left(1);
+                let new_l = if self.cpu.SR.C { 1 } else { 0 };
+                val |= new_l;
+
+                self.cpu.SR.N = (val as i8) < 0;
+                self.cpu.SR.Z = val == 0;
+                self.cpu.SR.C = new_c;
+
+                match instr {
+                    0x2A => self.cpu.ACC = val,
+                    0x26 => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPG);
+                        self.write(addr, &vec![val])
+                    }
+                    0x36 => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPGX);
+                        self.write(addr, &vec![val])
+                    }
+                    0x2E => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ABS);
+                        self.write(addr, &vec![val])
+                    }
+                    0x3E => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ABSX);
+                        self.write(addr, &vec![val])
+                    }
+                    _ => unreachable!("IN ROL BUT GOT BAD OPCOODE"),
+                };
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             ROR rotate right
+                accumulator	ROR A	6A	1	2
+                zeropage	ROR oper	66	2	5
+                zeropage,X	ROR oper,X	76	2	6
+                absolute	ROR oper	6E	3	6
+                absolute,X	ROR oper,X	7E	3	7 */
+            0x6A | 0x66 | 0x76 | 0x6E | 0x7E => {
+                let mut val: u8 = match instr {
+                    0x6A => self.get_val(&bytes, AddrMode::ACC, &mut stepstring),
+                    0x66 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
+                    0x76 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
+                    0x6E => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
+                    0x7E => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
+                    _ => unreachable!("IN ROR BUT GOT BAD OP"),
+                };
+
+                //ROR shifts all bits right one position.
+                //The Carry is shifted into bit 0 and the original bit 7 is shifted into the Carry.
+                let new_c: bool = (val & 0x1) == 0x1;
+                val = val.rotate_right(1);
+                let new_hi = if self.cpu.SR.C { 0x80 } else { 0 };
+                val &= 0x7F;
+                val |= new_hi;
+
+                self.cpu.SR.N = (val as i8) < 0;
+                self.cpu.SR.Z = val == 0;
+                self.cpu.SR.C = new_c;
+
+                match instr {
+                    0x6A => self.cpu.ACC = val,
+                    0x66 => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPG);
+                        self.write(addr, &vec![val])
+                    }
+                    0x76 => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPGX);
+                        self.write(addr, &vec![val])
+                    }
+                    0x6E => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ABS);
+                        self.write(addr, &vec![val])
+                    }
+                    0x7E => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ABSX);
+                        self.write(addr, &vec![val])
+                    }
+                    _ => unreachable!("IN ROR BUT GOT BAD OPCOODE"),
+                };
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             RTI return from interrupt
                 implied	RTI	40	1	6  */
             0x40 => {
@@ -1363,7 +1468,7 @@ impl NES {
                 let addr: u16 = match instr {
                     0x85 => {
                         let addr = self.calc_addr(&bytes, AddrMode::ZPG);
-                        write!(stepstring, "${:02x} = {:02X}", addr, self.read(addr, 1)[0])
+                        write!(stepstring, "${:02X} = {:02X}", addr, self.read(addr, 1)[0])
                             .unwrap();
                         addr
                     }
@@ -1373,6 +1478,8 @@ impl NES {
                     }
                     0x8D => {
                         let addr = self.calc_addr(&bytes, AddrMode::ABS);
+                        write!(stepstring, "${:04X} = {:02X}", addr, self.read(addr, 1)[0])
+                            .unwrap();
                         addr
                     }
                     0x9D => {
@@ -1433,6 +1540,32 @@ impl NES {
 
             /*
             STY store Y
+                zeropage	STY oper	84	2	3
+                zeropage,X	STY oper,X	94	2	4
+                absolute	STY oper	8C	3	4  */
+            0x84 | 0x94 | 0x8C => {
+                let addr = if instr == 0x84 {
+                    let addr = self.calc_addr(&bytes, AddrMode::ZPG);
+                    let cur_val = self.read(addr, 1)[0];
+                    write!(stepstring, "${:02X} = {:02X}", addr, cur_val).unwrap();
+                    addr
+                } else if instr == 0x94 {
+                    let addr = self.calc_addr(&bytes, AddrMode::ZPGX);
+                    addr
+                } else {
+                    let addr = self.calc_addr(&bytes, AddrMode::ABS);
+                    let cur_val = self.read(addr, 1)[0];
+                    write!(stepstring, "${:04X} = {:02X}", addr, cur_val).unwrap();
+                    addr
+                };
+
+                self.write(addr, &[self.cpu.Y].to_vec());
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             TAX transfer accumulator to X
                 implied	TAX	AA	1	2  */
             0xAA => {

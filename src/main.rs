@@ -16,7 +16,7 @@ use cpu::Cpu;
 use nes::NES;
 use wram::Wram;
 
-use pretty_assertions::Comparison;
+//use pretty_assertions::Comparison;
 use std::thread;
 
 fn main() {
