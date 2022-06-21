@@ -164,4 +164,14 @@ impl Cpu {
 
         return ret_vec;
     }
+
+    pub fn push(&mut self, wram: &mut crate::wram::Wram, val: u8) {
+        wram.contents[self.SP as usize + 0x100] = val;
+        self.SP -= 1;
+    }
+
+    pub fn pop(&mut self, wram: &mut crate::wram::Wram) -> u8 {
+        self.SP += 1;
+        wram.contents[self.SP as usize + 0x100]
+    }
 }

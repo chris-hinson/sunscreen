@@ -4,6 +4,9 @@ use crate::instr::Instr;
 use crate::wram::Wram;
 
 //use pretty_assertions::{assert_eq, assert_ne};
+use pretty_assertions::Comparison;
+use sdl2::render::SurfaceCanvas;
+
 use std::fmt::Write;
 
 //TODO: remove this allow once we finish implementing all addressing modes
@@ -22,12 +25,6 @@ pub enum AddrMode {
     ZPGX,
     ZPGY,
 }
-
-/*pub struct Channels {
-    pub log_channel: Sender<String>,
-    pub cpu_channel: Sender<Vec<String>>,
-    pub wram_channel: Sender<(usize, u8)>,
-}*/
 
 #[derive(Clone)]
 pub struct NES {
@@ -112,8 +109,11 @@ impl NES {
                             self.cpu.PC
                         ));
 
-                        pending_logs.push(good_line.clone());
-                        pending_logs.push(our_line.clone());
+                        pending_logs.push(format!("G: {}", good_line.clone()));
+                        pending_logs.push(format!("B: {}", our_line.clone()));
+
+                        //pending_logs.push(format!("{}", Comparison::new(&123, &134)));
+
                         halt = true;
                     } else {
                         pending_logs.push(our_line.clone());
@@ -331,7 +331,11 @@ impl NES {
         match self.instr_data.instrs.get(&instr) {
             Some(_v) => {}
             None => {
-                unimplemented!("crashing on unimplemented op: {instr:02x}")
+                unimplemented!(
+                    "crashing on unimplemented op: {instr:02x} at PC = {:04X}, cyc = {}",
+                    self.cpu.PC,
+                    self.cycles
+                )
             }
         }
 
@@ -909,12 +913,17 @@ impl NES {
             0x20 => {
                 //why the fuck does the 6502 use an empty stack >:(
                 //push ra
-                let addr = self.cpu.SP as u16;
+                //let addr = self.cpu.SP as u16 + 0x100 as u16;
                 let ra = self.cpu.PC + 2;
                 let ral = (ra & 0xFF) as u8;
                 let rah = ((ra >> 8) & 0xFF) as u8;
-                self.write(addr, &[ral, rah].to_vec());
-                self.cpu.SP -= 2;
+
+                //push high then low
+                self.cpu.push(&mut self.wram, rah);
+                self.cpu.push(&mut self.wram, ral);
+
+                //self.write(addr, &[ral, rah].to_vec());
+                //self.cpu.SP -= 2;
                 //set pc to target addr
                 let target = bytes[1] as u16 | (bytes[2] as u16) << 8;
                 self.cpu.PC = target;
@@ -1074,8 +1083,9 @@ impl NES {
                 implied	PHA	48	1	3 */
             0x48 => {
                 //push ACC (B =  11)
-                self.write(self.cpu.SP as u16, &vec![self.cpu.ACC]);
-                self.cpu.SP -= 1;
+                //self.write(self.cpu.SP as u16 + 0x100 as u16, &vec![self.cpu.ACC]);
+                //self.cpu.SP -= 1;
+                self.cpu.push(&mut self.wram, self.cpu.ACC);
 
                 self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
                 self.cycles += self.instr_data.instrs[&instr].cycles as u128;
@@ -1090,8 +1100,9 @@ impl NES {
                 saved_sr.BH = true;
                 saved_sr.BL = true;
 
-                self.write(self.cpu.SP as u16, &vec![saved_sr.decode()]);
-                self.cpu.SP -= 1;
+                //self.write(self.cpu.SP as u16 + 0x100 as u16, &vec![saved_sr.decode()]);
+                //self.cpu.SP -= 1;
+                self.cpu.push(&mut self.wram, saved_sr.decode());
 
                 self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
                 self.cycles += self.instr_data.instrs[&instr].cycles as u128;
@@ -1101,8 +1112,10 @@ impl NES {
             PLA pull accumulator
                 implied	PLA	68	1	4  */
             0x68 => {
-                self.cpu.SP += 1;
-                self.cpu.ACC = self.read(self.cpu.SP as u16, 1)[0];
+                //self.cpu.SP += 1;
+                //self.cpu.ACC = self.read(self.cpu.SP as u16 + 0x100 as u16, 1)[0];
+
+                self.cpu.ACC = self.cpu.pop(&mut self.wram);
 
                 self.cpu.SR.N = (self.cpu.ACC as i8) < 0;
                 self.cpu.SR.Z = self.cpu.ACC == 0;
@@ -1115,8 +1128,9 @@ impl NES {
             PLP pull processor status (SR)
                 implied	PLP	28	1	4 */
             0x28 => {
-                self.cpu.SP += 1;
-                let pulled = self.read(self.cpu.SP as u16, 1)[0];
+                //self.cpu.SP += 1;
+                //let pulled = self.read(self.cpu.SP as u16 + 0x100 as u16, 1)[0];
+                let pulled = self.cpu.pop(&mut self.wram);
                 let old_bh = self.cpu.SR.BH;
                 let old_bl = self.cpu.SR.BL;
 
@@ -1136,12 +1150,14 @@ impl NES {
                 implied	RTS	60	1	6  */
             0x60 => {
                 //pull PC, PC+1 -> PC
-                self.cpu.SP += 2;
-                let pull = self.read(self.cpu.SP as u16, 2);
-                let new_pc = pull[0] as u16 | (pull[1] as u16) << 8;
+                //self.cpu.SP += 2;
+                //let pull = self.read(self.cpu.SP as u16 + 0x100 as u16, 2);
+                let new_pc_lo = self.cpu.pop(&mut self.wram) as u16;
+                let new_pc_hi = self.cpu.pop(&mut self.wram) as u16;
+                let new_pc: u16 = new_pc_lo | new_pc_hi << 8;
                 self.cpu.PC = new_pc;
 
-                self.cpu.PC += 1;
+                self.cpu.PC = self.cpu.PC.wrapping_add(1);
 
                 self.cycles += self.instr_data.instrs[&instr].cycles as u128;
             }
@@ -1328,8 +1344,8 @@ impl NES {
             0xBA => {
                 self.cpu.X = self.cpu.SP;
 
-                self.cpu.SR.N = (self.cpu.SP as i8) < 0;
-                self.cpu.SR.Z = self.cpu.SP == 0;
+                self.cpu.SR.N = (self.cpu.X as i8) < 0;
+                self.cpu.SR.Z = self.cpu.X == 0;
 
                 self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
                 self.cycles += self.instr_data.instrs[&instr].cycles as u128;

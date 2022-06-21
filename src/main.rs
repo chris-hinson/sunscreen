@@ -16,6 +16,7 @@ use cpu::Cpu;
 use nes::NES;
 use wram::Wram;
 
+use pretty_assertions::Comparison;
 use std::thread;
 
 fn main() {
@@ -47,6 +48,7 @@ fn main() {
     //make our full system and add a breakpoint at the test rom entry address
     let mut nes = NES::new(cpu, cart, wram);
     nes.add_breakpoint(0xC000);
+    //nes.add_breakpoint(0xC5FD);
 
     let runner_handle = thread::Builder::new()
         .name("runner".to_string())
