@@ -238,7 +238,10 @@ impl NES {
         //NOTE: this is split out as a match case because we need to print different stuff based on
         // addr mode, otherwise we could just always calc addr and read a byte
         return match mode {
-            AddrMode::ACC => self.cpu.ACC,
+            AddrMode::ACC => {
+                write!(stepstring, "A");
+                self.cpu.ACC
+            }
             AddrMode::ABS => {
                 let addr = self.calc_addr(bytes, AddrMode::ABS);
                 let val = self.read(addr, 1)[0];
@@ -438,7 +441,53 @@ impl NES {
 
             /*
             ASL arithmetic shift left
+                accumulator	ASL A	0A	1	2
+                zeropage	ASL oper	06	2	5
+                zeropage,X	ASL oper,X	16	2	6
+                absolute	ASL oper	0E	3	6
+                absolute,X	ASL oper,X	1E	3	7  */
+            0x0A | 0x06 | 0x16 | 0x0E | 0x1E => {
+                let mut val = match instr {
+                    0x0A => self.get_val(&bytes, AddrMode::ACC, &mut stepstring),
+                    0x06 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
+                    0x16 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
+                    0x0E => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
+                    0x1E => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
+                    _ => unreachable!("IN ASL BUT GOT BAD OPCOODE"),
+                };
 
+                self.cpu.SR.C = (val & 0x80) >> 7 == 1;
+                val = (val << 1) & 0b1111_1110;
+
+                self.cpu.SR.N = (val as i8) < 0;
+                self.cpu.SR.Z = val == 0;
+
+                match instr {
+                    0x0A => self.cpu.ACC = val,
+                    0x06 => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPG);
+                        self.write(addr, &vec![val])
+                    }
+                    0x16 => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPGX);
+                        self.write(addr, &vec![val])
+                    }
+                    0x0E => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ABS);
+                        self.write(addr, &vec![val])
+                    }
+                    0x1E => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ABSX);
+                        self.write(addr, &vec![val])
+                    }
+                    _ => unreachable!("IN LSR BUT GOT BAD OPCOODE"),
+                };
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             //TODO: combine all branch ops into one case
             BCC branch on carry clear
                 relative	BCC oper	90	2	2** */
@@ -698,6 +747,13 @@ impl NES {
             }
             /*
             CLI clear interrupt disable
+                implied	CLI	58	1	*/
+            0x58 => {
+                self.cpu.SR.I = false;
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
             CLV clear overflow
                 implied	CLV	B8	1	2  */
             0xB8 => {
@@ -1035,6 +1091,53 @@ impl NES {
 
             /*
             LSR logical shift right
+                accumulator	LSR A	4A	1	2
+                zeropage	LSR oper	46	2	5
+                zeropage,X	LSR oper,X	56	2	6
+                absolute	LSR oper	4E	3	6
+                absolute,X	LSR oper,X	5E	3	7 */
+            0x4A | 0x46 | 0x56 | 0x4E | 0x5E => {
+                let mut val = match instr {
+                    0x4A => self.get_val(&bytes, AddrMode::ACC, &mut stepstring),
+                    0x46 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
+                    0x56 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
+                    0x4E => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
+                    0x5E => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
+                    _ => unreachable!("IN LSR BUT GOT BAD OPCOODE"),
+                };
+
+                self.cpu.SR.C = (val & 0x1) == 1;
+                val = val >> 1;
+
+                self.cpu.SR.N = false;
+                self.cpu.SR.Z = val == 0;
+
+                match instr {
+                    0x4A => self.cpu.ACC = val,
+                    0x46 => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPG);
+                        self.write(addr, &vec![val])
+                    }
+                    0x56 => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPGX);
+                        self.write(addr, &vec![val])
+                    }
+                    0x4E => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ABS);
+                        self.write(addr, &vec![val])
+                    }
+                    0x5E => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ABSX);
+                        self.write(addr, &vec![val])
+                    }
+                    _ => unreachable!("IN LSR BUT GOT BAD OPCOODE"),
+                };
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             NOP no operation
                 implied	NOP	EA	1	2 */
             0xEA => {
@@ -1146,6 +1249,21 @@ impl NES {
             ROL rotate left
             ROR rotate right
             RTI return from interrupt
+                implied	RTI	40	1	6  */
+            0x40 => {
+                let new_sr = self.cpu.pop(&mut self.wram);
+                self.cpu.SR.encode(new_sr);
+                //TODO: THIS IS A FUCKING HACK BC I THINK WE SHOULD ONLY BE ABLE TO GET HERE FROM AN IRQ
+                self.cpu.SR.BH = true;
+
+                let new_pc_lo = self.cpu.pop(&mut self.wram) as u16;
+                let new_pc_hi = self.cpu.pop(&mut self.wram) as u16;
+                self.cpu.PC = new_pc_lo | new_pc_hi << 8;
+
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*/
             RTS return from subroutine
                 implied	RTS	60	1	6  */
             0x60 => {
