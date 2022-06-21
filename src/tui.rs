@@ -4,24 +4,12 @@ use cursive::theme::{BaseColor::*, BorderStyle, Color::*, Palette, Theme};
 use cursive::traits::Nameable;
 use cursive::view::SizeConstraint;
 use cursive::views::{Dialog, DummyView, LinearLayout, ResizedView};
+use cursive::{Cursive, CursiveExt};
 
-pub struct AppState {
-    pub is_running: bool,
-    pub nes_state: NES,
-}
-pub fn setup_tui(system: &mut crate::nes::NES) -> cursive::CursiveRunner<cursive::CursiveRunnable> {
+pub fn setup_tui(system: &mut crate::nes::NES) -> cursive::Cursive {
     //main structs
-    let cur = cursive::default();
-    let mut our_runner = cur.into_runner();
+    let mut cur = Cursive::new();
 
-    //app state and our cpu
-    let app_state = AppState {
-        is_running: false,
-        nes_state: system.clone(),
-    };
-
-    //our TUI needs an app state so we can update our cpu accordingly
-    our_runner.set_user_data(app_state);
     /*
         Background => Dark(Blue)
         Shadow => Dark(Black)
@@ -47,7 +35,7 @@ pub fn setup_tui(system: &mut crate::nes::NES) -> cursive::CursiveRunner<cursive
         borders: BorderStyle::Simple,
         palette: our_palette,
     };
-    our_runner.set_theme(our_theme);
+    cur.set_theme(our_theme);
 
     ///////////////////////////////////////////////////////////////////////////////////////////////
     let log_view = ResizedView::new(
@@ -70,12 +58,12 @@ pub fn setup_tui(system: &mut crate::nes::NES) -> cursive::CursiveRunner<cursive
     let ram_view = ResizedView::new(
         SizeConstraint::Full,
         SizeConstraint::Fixed(15),
-        UltraHexaView::new_from_iter(&system.wram.contents).with_name("ram_view"),
+        UltraHexaView::new_from_iter(&system.wram.contents).with_name("wram"),
     );
     let rom_view = ResizedView::new(
         SizeConstraint::Full,
         SizeConstraint::Fixed(15),
-        UltraHexaView::new_from_iter(&system.cart.prg_rom).with_name("rom_view"),
+        UltraHexaView::new_from_iter(&system.cart.prg_rom).with_name("rom"),
     );
     /*let chr_view = ResizedView::new(
         SizeConstraint::Full,
@@ -101,7 +89,7 @@ pub fn setup_tui(system: &mut crate::nes::NES) -> cursive::CursiveRunner<cursive
         .child(Dialog::around(rom_view).title("ROM"));
     //.child(Dialog::around(chr_view).title("CHR"));
 
-    our_runner.add_layer(
+    cur.add_layer(
         LinearLayout::vertical()
             .child(top_level)
             .child(bottom_level),
@@ -112,16 +100,37 @@ pub fn setup_tui(system: &mut crate::nes::NES) -> cursive::CursiveRunner<cursive
 
     //TODO: im like 99% sure this is leaking memory, but calling cur.quit() and or our_runner.quit()
     //just doesnt do anything lmfao
-    our_runner.add_global_callback('q', |_cur| {
-        panic!("panicked out");
+    cur.add_global_callback('q', |s| {
+        //panic!("panicked out");
+        s.quit()
     });
 
-    //global callback to toggle appState's running variable
-    our_runner.add_global_callback('w', |cur| {
-        cur.with_user_data(|data: &mut AppState| {
-            data.is_running = !data.is_running;
-        });
-    });
+    //add panic key
+    cur.add_global_callback('p', |_cur| panic!("lol"));
 
-    return our_runner;
+    return cur;
+}
+
+//runner function
+//TODO: make this be able to mutate the NES state and return it to the caller thread
+pub fn run(siv: &mut cursive::Cursive, new_logs: &mut Vec<String>, system: &mut NES) {
+    //append any logs that we have accumulated since our last call to the debugger
+    siv.call_on_name("log", |view: &mut BufferView| view.update(new_logs));
+
+    //cpu view
+    siv.call_on_name("cpu", |view: &mut CpuView| {
+        view.update(system.cpu.fmt_for_tui())
+    });
+    //wram
+    siv.call_on_name("wram", |view: &mut UltraHexaView| {
+        view.set_data(&mut system.wram.contents.to_vec());
+    });
+    //rom
+    siv.call_on_name("rom", |view: &mut UltraHexaView| {
+        view.set_data(&mut system.cart.prg_rom);
+    });
+    //apu
+    //ppu
+
+    siv.run();
 }

@@ -2,12 +2,9 @@ use crate::cart::Cart;
 use crate::cpu::Cpu;
 use crate::instr::Instr;
 use crate::wram::Wram;
-use std::sync::mpsc::Sender;
-use std::sync::{Arc, Condvar, Mutex};
 
-use std::fs;
-
-use std::fmt::{format, Write};
+//use pretty_assertions::{assert_eq, assert_ne};
+use std::fmt::Write;
 
 //TODO: remove this allow once we finish implementing all addressing modes
 #[allow(dead_code)]
@@ -46,8 +43,8 @@ pub struct NES {
     //data about the system
     pub cycles: u128,
     //pub running_pair: Arc<(Mutex<bool>, Condvar)>,
-    pub log_channel: Sender<String>,
-    pub nes_channel: Sender<NES>,
+    //pub log_channel: Sender<String>,
+    //pub nes_channel: Sender<NES>,
 
     //breakpoints halt execution when our PC equals that value
     pub breakpoints: Vec<usize>,
@@ -55,13 +52,14 @@ pub struct NES {
     pub watchpoints: Vec<usize>,
 }
 
+#[allow(dead_code)]
 impl NES {
     pub fn new(
         cpu: Cpu,
         cart: Cart,
         wram: Wram,
-        log_channel: Sender<String>,
-        nes_channel: Sender<NES>,
+        //log_channel: Sender<String>,
+        //nes_channel: Sender<NES>,
     ) -> NES {
         NES {
             cpu,
@@ -72,8 +70,8 @@ impl NES {
             //running_pair: pair,
             breakpoints: Vec::new(),
             watchpoints: Vec::new(),
-            log_channel,
-            nes_channel,
+            //log_channel,
+            //nes_channel,
         }
     }
 
@@ -85,80 +83,58 @@ impl NES {
     }
 
     //function to run this system in its own thread, takes a SENDER channel to return logs on to the rendering thread
-    pub fn run(&mut self, mut log: Vec<String>, pair: Arc<(Mutex<bool>, Condvar, Condvar)>) {
-        let mut counter = log.len() - 1;
+    pub fn run(
+        &mut self,
+        mut good_log: Vec<String>,
+        //siv: Arc<Mutex<cursive::CursiveRunner<cursive::CursiveRunnable>>>,
+    ) {
+        //let tui = *siv.lock().unwrap();
 
-        //before we ever start running, set our running predicate to true
-        //let mut running = pair.0.lock().unwrap();
-        //*running = true;
-        //drop the mutexgaurd so the frontend can modify it
-        //drop(running);
-        //tell the frontend that the value has changed
-        //pair.1.notify_all();
-
-        assert_ne!(log.len(), 0);
+        let mut tui = crate::tui::setup_tui(self);
 
         let mut halt = false;
-
+        let mut pending_logs: Vec<String> = Vec::new();
         //endless running loop
         loop {
-            assert_ne!(counter, 0);
-            fs::write(
-                "./helpmegodplease.log",
-                format!("{} lines remaining", log.len()),
-            )
-            .unwrap();
-            /*let good_line = match log.pop() {
+            let good_line = match good_log.pop() {
                 Some(v) => v,
                 None => panic!("log file is empty???"),
-            };*/
-            let good_line = &log[counter];
+            };
             match self.step() {
+                //Ok means that we didnt encounter anything out of the ordinary in our step
                 Ok(our_line) => {
-                    if !good_line.eq(&our_line) {
-                        //panic!("line mismatch");
-                        self.log_channel
-                            .send("HALTING BC LOG MISMATCH".to_string())
-                            .unwrap();
-                        fs::write(
-                            "./errorlog.log",
-                            format!("good: {}\nbad:  {}", good_line, our_line),
-                        )
-                        .unwrap();
+                    //always push the line we just got back
+
+                    if good_line.ne(&our_line) {
+                        //panic!("mismatch");
+                        pending_logs.push(format!(
+                            "halting on line mismatch, PC = {:04X}",
+                            self.cpu.PC
+                        ));
+
+                        pending_logs.push(good_line.clone());
+                        pending_logs.push(our_line.clone());
                         halt = true;
                     } else {
-                        //panic!("aaaaaaaaaaaa?");
-                        fs::write("./mylog.log", format!("{}\n", our_line)).unwrap();
-                        self.log_channel.send(our_line).unwrap();
+                        pending_logs.push(our_line.clone());
                     }
+                    //assert_eq!(good_line, our_line);
                 }
+                //append our error and halt
                 Err(error_string) => {
-                    self.log_channel.send(error_string).unwrap();
+                    pending_logs.push(error_string);
                     halt = true;
                 }
             }
 
             if halt {
-                let (lock, tui_condvar, nes_condvar) = &*pair;
-                //update our predicate to false so the tui can start running
-                let mut running = lock.lock().unwrap();
-                *running = false;
-                //drop our mutex so that it may be accquired by the frontend
-                drop(running);
-                //tell the frontend that there has been an update to the preciate
-                tui_condvar.notify_all();
-                //DONT FORGET TO SEND A CPU SNAPSHOT TO THE FRONEND
-                //self.nes_channel.send(self.clone()).unwrap();
-                //Blocks the current thread until this condition variable receives a notification and the provided condition is false.
-                let guard = nes_condvar
-                    .wait_while(lock.lock().unwrap(), |pending| *pending == false)
-                    .unwrap();
-                drop(guard);
-                drop(lock);
-                //panic!("end of halt in nes");
+                //if we're halting on this step, call our tui runner function
+                crate::tui::run(&mut tui, &mut pending_logs, self);
+                //clear our pending logs before we continue
+                pending_logs = Vec::new();
+                //make sure to turn halting off
                 halt = false;
             }
-            counter = counter.saturating_sub(1);
         }
     }
 
@@ -338,8 +314,8 @@ impl NES {
     pub fn step(&mut self) -> Result<String, String> {
         //if we are at a breakpoint, take no action, and set our running flag to false
         if self.breakpoints.contains(&(self.cpu.PC as usize)) {
-            //self.running = false;
-            return Err("Hit breakpoint".to_owned());
+            self.breakpoints.retain(|v| *v != (self.cpu.PC as usize));
+            return Err(format!("Hit breakpoint at PC = {:04X}", self.cpu.PC));
         }
 
         //for debugging, lets build a string to output this step

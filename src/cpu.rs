@@ -2,7 +2,6 @@ use std::fmt;
 
 #[allow(non_snake_case)]
 #[derive(Debug, Clone)]
-
 pub struct Cpu {
     pub PC: u16,
     pub ACC: u8,
