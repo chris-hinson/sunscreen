@@ -8,6 +8,7 @@ use crate::wram::Wram;
 //use sdl2::render::SurfaceCanvas;
 
 use std::fmt::Write;
+use std::fs::OpenOptions;
 
 //TODO: remove this allow once we finish implementing all addressing modes
 #[allow(dead_code)]
@@ -39,9 +40,6 @@ pub struct NES {
 
     //data about the system
     pub cycles: u128,
-    //pub running_pair: Arc<(Mutex<bool>, Condvar)>,
-    //pub log_channel: Sender<String>,
-    //pub nes_channel: Sender<NES>,
 
     //breakpoints halt execution when our PC equals that value
     pub breakpoints: Vec<usize>,
@@ -51,24 +49,15 @@ pub struct NES {
 
 #[allow(dead_code)]
 impl NES {
-    pub fn new(
-        cpu: Cpu,
-        cart: Cart,
-        wram: Wram,
-        //log_channel: Sender<String>,
-        //nes_channel: Sender<NES>,
-    ) -> NES {
+    pub fn new(cpu: Cpu, cart: Cart, wram: Wram) -> NES {
         NES {
             cpu,
             cart,
             wram,
             cycles: 7, //from intial reset vector
             instr_data: Instr::new(),
-            //running_pair: pair,
             breakpoints: Vec::new(),
             watchpoints: Vec::new(),
-            //log_channel,
-            //nes_channel,
         }
     }
 
@@ -80,12 +69,12 @@ impl NES {
     }
 
     //function to run this system in its own thread, takes a SENDER channel to return logs on to the rendering thread
-    pub fn run(
-        &mut self,
-        mut good_log: Vec<String>,
-        //siv: Arc<Mutex<cursive::CursiveRunner<cursive::CursiveRunnable>>>,
-    ) {
-        //let tui = *siv.lock().unwrap();
+    pub fn run(&mut self, mut good_log: Vec<String>) {
+        /*let file = OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open("./file")
+        .unwrap();*/
 
         let mut tui = crate::tui::setup_tui(self);
 
@@ -100,8 +89,11 @@ impl NES {
             match self.step() {
                 //Ok means that we didnt encounter anything out of the ordinary in our step
                 Ok(our_line) => {
+                    //file.write("{our_line}");
+                    //write!(file, "{our_line}");
+                    std::fs::write("./err", our_line.clone())
+                        .expect("please just shut the fuck up");
                     //always push the line we just got back
-
                     if good_line.ne(&our_line) {
                         //panic!("mismatch");
                         pending_logs.push(format!(
@@ -112,16 +104,16 @@ impl NES {
                         pending_logs.push(format!("G: {}", good_line.clone()));
                         pending_logs.push(format!("B: {}", our_line.clone()));
 
-                        //pending_logs.push(format!("{}", Comparison::new(&123, &134)));
-
                         halt = true;
                     } else {
                         pending_logs.push(our_line.clone());
                     }
-                    //assert_eq!(good_line, our_line);
                 }
                 //append our error and halt
                 Err(error_string) => {
+                    std::fs::write("./err", error_string.clone())
+                        .expect("please just shut the fuck up");
+
                     pending_logs.push(error_string);
                     halt = true;
                 }
@@ -224,7 +216,17 @@ impl NES {
                 addr
             }
             AddrMode::REL => {
-                unimplemented!("RELATIVE ADDRESSING NOT IMPLEMENTED")
+                //offset is signed so it can be forward or backwards
+                let offset = bytes[1] as i8;
+                let target = self.cpu.PC.wrapping_add_signed(offset as i16);
+
+                //rel addressing may incur a penalty if crossing page boundary
+                //AND IF THE BRANCH IS TAKEN
+                if ((self.cpu.PC & 0xFF00) != (target & 0xFF00)) && penalty {
+                    self.cycles += 1;
+                }
+
+                target
             }
             AddrMode::ZPG => {
                 let addr = bytes[1] as u16;
@@ -576,20 +578,16 @@ impl NES {
                 self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
 
                 //we always need to compute the target for logging prints
-                let target = self.cpu.PC as i16 + bytes[1] as i16;
+                let target = self.calc_addr(&bytes, AddrMode::REL, false);
                 write!(stepstring, "${target:04X}").unwrap();
 
                 if !self.cpu.SR.C {
-                    let cur_page = self.cpu.PC & 0xFF00;
-                    let target_page = (target as u16) & 0xFF00;
-                    self.cpu.PC = target as u16;
-                    //branch taken always adds a cycle
+                    //call with true BEFORE UPDATING PC to see if we cross a page
+                    self.calc_addr(&bytes, AddrMode::REL, true);
+                    //now we update the PC
+                    self.cpu.PC = target;
+                    //branching always adds a cycle
                     self.cycles += 1;
-                    //add another cycle if we cross page boundary
-                    if cur_page != target_page {
-                        //println!("branch across page: {cur_page} to {target_page}");
-                        self.cycles += 1
-                    }
                 }
                 self.cycles += self.instr_data.instrs[&instr].cycles as u128;
             }
@@ -600,20 +598,16 @@ impl NES {
                 self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
 
                 //we always need to compute the target for logging prints
-                let target = self.cpu.PC as i16 + bytes[1] as i16;
+                let target = self.calc_addr(&bytes, AddrMode::REL, false);
                 write!(stepstring, "${target:04X}").unwrap();
 
                 if self.cpu.SR.C {
-                    let cur_page = self.cpu.PC & 0xFF00;
-                    let target_page = (target as u16) & 0xFF00;
-                    self.cpu.PC = target as u16;
+                    //call with true BEFORE UPDATING PC to see if we cross a page
+                    self.calc_addr(&bytes, AddrMode::REL, true);
+                    //now we update the PC
+                    self.cpu.PC = target;
                     //branching always adds a cycle
                     self.cycles += 1;
-                    //add another cycle if we cross page boundary
-                    if cur_page != target_page {
-                        //println!("branch across page: {cur_page} to {target_page}");
-                        self.cycles += 1
-                    }
                 }
                 self.cycles += self.instr_data.instrs[&instr].cycles as u128;
             }
@@ -625,20 +619,16 @@ impl NES {
                 self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
 
                 //we always need to compute the target for logging prints
-                let target = self.cpu.PC as i16 + bytes[1] as i16;
+                let target = self.calc_addr(&bytes, AddrMode::REL, false);
                 write!(stepstring, "${target:04X}").unwrap();
 
                 if self.cpu.SR.Z {
-                    let cur_page = self.cpu.PC & 0xFF00;
-                    let target_page = (target as u16) & 0xFF00;
-                    self.cpu.PC = target as u16;
+                    //call with true BEFORE UPDATING PC to see if we cross a page
+                    self.calc_addr(&bytes, AddrMode::REL, true);
+                    //now we update the PC
+                    self.cpu.PC = target;
                     //branching always adds a cycle
                     self.cycles += 1;
-                    //add another cycle if we cross page boundary
-                    if cur_page != target_page {
-                        //println!("branch across page: {cur_page} to {target_page}");
-                        self.cycles += 1
-                    }
                 }
                 self.cycles += self.instr_data.instrs[&instr].cycles as u128;
             }
@@ -671,19 +661,16 @@ impl NES {
                 self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
 
                 //we always need to compute the target for logging prints
-                let target = self.cpu.PC as i16 + bytes[1] as i16;
+                let target = self.calc_addr(&bytes, AddrMode::REL, false);
                 write!(stepstring, "${target:04X}").unwrap();
 
                 if self.cpu.SR.N {
-                    let cur_page = self.cpu.PC & 0xFF00;
-                    let target_page = (target as u16) & 0xFF00;
-                    self.cpu.PC = target as u16;
+                    //call with true BEFORE UPDATING PC to see if we cross a page
+                    self.calc_addr(&bytes, AddrMode::REL, true);
+                    //now we update the PC
+                    self.cpu.PC = target;
                     //branching always adds a cycle
                     self.cycles += 1;
-                    //add another cycle if we cross page boundary
-                    if cur_page != target_page {
-                        self.cycles += 1
-                    }
                 }
                 self.cycles += self.instr_data.instrs[&instr].cycles as u128;
             }
@@ -694,20 +681,18 @@ impl NES {
                 self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
 
                 //we always need to compute the target for logging prints
-                let target = self.cpu.PC as i16 + bytes[1] as i16;
+                //let target = self.cpu.PC.wrapping_add_signed(bytes[1] as i16);
+                //call with false bc we dont know if we're taking it yet
+                let target = self.calc_addr(&bytes, AddrMode::REL, false);
                 write!(stepstring, "${target:04X}").unwrap();
 
                 if !self.cpu.SR.Z {
-                    let cur_page = self.cpu.PC & 0xFF00;
-                    let target_page = (target as u16) & 0xFF00;
-                    self.cpu.PC = target as u16;
+                    //call with true BEFORE UPDATING PC to see if we cross a page
+                    self.calc_addr(&bytes, AddrMode::REL, true);
+                    //now we update the PC
+                    self.cpu.PC = target;
                     //branching always adds a cycle
                     self.cycles += 1;
-                    //add another cycle if we cross page boundary
-                    if cur_page != target_page {
-                        //println!("branch across page: {cur_page} to {target_page}");
-                        self.cycles += 1
-                    }
                 }
                 self.cycles += self.instr_data.instrs[&instr].cycles as u128;
             }
@@ -718,19 +703,16 @@ impl NES {
                 self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
 
                 //we always need to compute the target for logging prints
-                let target = self.cpu.PC as i16 + bytes[1] as i16;
+                let target = self.calc_addr(&bytes, AddrMode::REL, false);
                 write!(stepstring, "${target:04X}").unwrap();
 
                 if !self.cpu.SR.N {
-                    let cur_page = self.cpu.PC & 0xFF00;
-                    let target_page = (target as u16) & 0xFF00;
-                    self.cpu.PC = target as u16;
+                    //call with true BEFORE UPDATING PC to see if we cross a page
+                    self.calc_addr(&bytes, AddrMode::REL, true);
+                    //now we update the PC
+                    self.cpu.PC = target;
                     //branching always adds a cycle
                     self.cycles += 1;
-                    //add another cycle if we cross page boundary
-                    if cur_page != target_page {
-                        self.cycles += 1
-                    }
                 }
                 self.cycles += self.instr_data.instrs[&instr].cycles as u128;
             }
@@ -1813,6 +1795,232 @@ impl NES {
                 self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
                 self.cycles += self.instr_data.instrs[&instr].cycles as u128;
             }
+
+            ///////////////////////////////////////////////////////////////////////////////////////
+            //here be unofficial ops
+            /* *NOP
+                1A	implied	1	2
+                3A	implied	1	2
+                5A	implied	1	2
+                7A	implied	1	2
+                DA	implied	1	2
+                FA	implied	1	2
+                80	immediate	2	2
+                82	immediate	2	2
+                89	immediate	2	2
+                C2	immediate	2	2
+                E2	immediate	2	2
+                04	zeropage	2	3
+                44	zeropage	2	3
+                64	zeropage	2	3
+                14	zeropage,X	2	4
+                34	zeropage,X	2	4
+                54	zeropage,X	2	4
+                74	zeropage,X	2	4
+                D4	zeropage,X	2	4
+                F4	zeropage,X	2	4
+                0C	absolute	3	4
+                1C	absolut,X	3	4*
+                3C	absolut,X	3	4*
+                5C	absolut,X	3	4*
+                7C	absolut,X	3	4*
+                DC	absolut,X	3	4*
+                FC	absolut,X	3	4*
+            */
+            0x1A | 0x3A | 0x5A | 0x7A | 0xDA | 0xFA | 0x80 | 0x82 | 0x89 | 0xC2 | 0xE2 | 0x04
+            | 0x44 | 0x64 | 0x14 | 0x34 | 0x54 | 0x74 | 0xD4 | 0xF4 | 0x0C | 0x1C | 0x3C | 0x5C
+            | 0x7C | 0xDC | 0xFC => {
+                //these are literally all nops are you fucking kidding me
+                //ARE YOU FUCKING KIDDING ME NESTEST FORMATS THEM ALL DIFFERENTLY??
+                stepstring.remove(stepstring.len() - 6);
+
+                //TODO: we have to write to the stepstring manually because reading from memory might access an address we are not allowed to
+                match instr {
+                    //implied
+                    0x1A | 0x3A | 0x5A | 0x7A | 0xDA | 0xFA => {}
+                    //imm
+                    0x80 | 0x82 | 0x89 | 0xC2 | 0xE2 => {
+                        write!(stepstring, "#${:02X}", bytes[1]).unwrap()
+                    }
+                    //zpg
+                    0x04 | 0x44 | 0x64 => {
+                        self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false);
+                    }
+                    //zpgx
+                    0x14 | 0x34 | 0x54 | 0x74 | 0xD4 | 0xF4 => {
+                        self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring, false);
+                    }
+                    //absolute
+                    0x0C => {
+                        self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false);
+                    }
+                    //absolute X
+                    0x1C | 0x3C | 0x5C | 0x7C | 0xDC | 0xFC => {
+                        self.get_val(&bytes, AddrMode::ABSX, &mut stepstring, true);
+                    }
+                    _ => unreachable!("go fuck yourself {instr:02X}"),
+                }
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
+            LAX
+                zeropage	LAX oper	A7	2	3
+                zeropage,Y	LAX oper,Y	B7	2	4
+                absolute	LAX oper	AF	3	4
+                absolut,Y	LAX oper,Y	BF	3	4*
+                (indirect,X)	LAX (oper,X)	A3	2	6
+                (indirect),Y	LAX (oper),Y	B3	2	5*
+            */
+            0xA7 | 0xB7 | 0xAF | 0xBF | 0xA3 | 0xB3 => {
+                stepstring.remove(stepstring.len() - 6);
+                let val = match instr {
+                    0xA7 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false),
+                    0xB7 => self.get_val(&bytes, AddrMode::ZPGY, &mut stepstring, false),
+                    0xAF => self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false),
+                    0xBF => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring, true),
+                    0xA3 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring, false),
+                    0xB3 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring, true),
+                    _ => unreachable!("IN LAX BUT GOT BAD OP"),
+                };
+
+                self.cpu.ACC = val;
+                self.cpu.X = val;
+
+                self.cpu.SR.N = (val as i8) < 0;
+                self.cpu.SR.Z = val == 0;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
+            SAX
+                zeropage	SAX oper	87	2	3
+                zeropage,Y	SAX oper,Y	97	2	4
+                absolute	SAX oper	8F	3	4
+                (indirect,X)	SAX (oper,X)	83	2	6
+            */
+            0x87 | 0x97 | 0x8F | 0x83 => {
+                stepstring.remove(stepstring.len() - 6);
+                let addr = match instr {
+                    0x87 => {
+                        self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false);
+
+                        self.calc_addr(&bytes, AddrMode::ZPG, false)
+                    }
+                    0x97 => {
+                        self.get_val(&bytes, AddrMode::ZPGY, &mut stepstring, false);
+
+                        self.calc_addr(&bytes, AddrMode::ZPGY, false)
+                    }
+                    0x8F => {
+                        self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false);
+
+                        self.calc_addr(&bytes, AddrMode::ABS, false)
+                    }
+                    0x83 => {
+                        self.get_val(&bytes, AddrMode::INDX, &mut stepstring, false);
+
+                        self.calc_addr(&bytes, AddrMode::INDX, false)
+                    }
+                    _ => unreachable!("IN LAX BUT GOT BAD OP"),
+                };
+
+                let val = self.cpu.ACC & self.cpu.X;
+                self.write(addr, &vec![val]);
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
+            USBC
+                immediate	USBC #oper	EB	2	2
+            */
+            0xEB => {
+                stepstring.remove(stepstring.len() - 6);
+
+                let val = self.get_val(&bytes, AddrMode::IMM, &mut stepstring, false);
+                //A - M - C -> A
+                //NZCV
+
+                //shoutout kamiyaowl's rust nes emulator for this one
+                let sub1 = self.cpu.ACC.overflowing_sub(val);
+                let sub2 = sub1.0.overflowing_sub(if self.cpu.SR.C { 0 } else { 1 });
+
+                self.cpu.SR.Z = sub2.0 == 0;
+                self.cpu.SR.N = (sub2.0 as i8) < 0;
+                self.cpu.SR.C = !(sub1.1 || sub2.1);
+                self.cpu.SR.V = (((self.cpu.ACC ^ val) & 0x80) == 0x80)
+                    && (((self.cpu.ACC ^ sub2.0) & 0x80) == 0x80);
+
+                self.cpu.ACC = sub2.0;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*DCP
+                zeropage	DCP oper	C7	2	5
+                zeropage,X	DCP oper,X	D7	2	6
+                absolute	DCP oper	CF	3	6
+                absolut,X	DCP oper,X	DF	3	7
+                absolut,Y	DCP oper,Y	DB	3	7
+                (indirect,X)	DCP (oper,X)	C3	2	8
+                (indirect),Y	DCP (oper),Y	D3	2	8
+            */
+            0xC7 | 0xD7 | 0xCF | 0xDF | 0xDB | 0xC3 | 0xD3 => {}
+            /*
+            ISB
+                zeropage	ISC oper	E7	2	5
+                zeropage,X	ISC oper,X	F7	2	6
+                absolute	ISC oper	EF	3	6
+                absolut,X	ISC oper,X	FF	3	7
+                absolut,Y	ISC oper,Y	FB	3	7
+                (indirect,X)	ISC (oper,X)	E3	2	8
+                (indirect),Y	ISC (oper),Y	F3	2	4  */
+            0xE7 | 0xF7 | 0xEF | 0xFF | 0xFB | 0xE3 | 0xF3 => {}
+            /*
+            SLO
+                zeropage	SLO oper	07	2	5
+                zeropage,X	SLO oper,X	17	2	6
+                absolute	SLO oper	0F	3	6
+                absolut,X	SLO oper,X	1F	3	7
+                absolut,Y	SLO oper,Y	1B	3	7
+                (indirect,X)	SLO (oper,X)	03	2	8
+                (indirect),Y	SLO (oper),Y	13	2	8  */
+            0x07 | 0x17 | 0x0F | 0x1F | 0x1B | 0x03 | 0x13 => {}
+
+            /*
+            RLA
+                zeropage	RLA oper	27	2	5
+                zeropage,X	RLA oper,X	37	2	6
+                absolute	RLA oper	2F	3	6
+                absolut,X	RLA oper,X	3F	3	7
+                absolut,Y	RLA oper,Y	3B	3	7
+                (indirect,X)	RLA (oper,X)	23	2	8
+                (indirect),Y	RLA (oper),Y	33	2	8
+            */
+            0x27 | 0x37 | 0x2F | 0x3F | 0x3B | 0x23 | 0x33 => {}
+            /*
+            SRE
+                zeropage	SRE oper	47	2	5
+                zeropage,X	SRE oper,X	57	2	6
+                absolute	SRE oper	4F	3	6
+                absolut,X	SRE oper,X	5F	3	7
+                absolut,Y	SRE oper,Y	5B	3	7
+                (indirect,X)	SRE (oper,X)	43	2	8
+                (indirect),Y	SRE (oper),Y	53	2	8 */
+            0x47 | 0x57 | 0x4F | 0x5F | 0x5B | 0x43 | 0x53 => {}
+            /*
+            RRA
+                zeropage	RRA oper	67	2	5
+                zeropage,X	RRA oper,X	77	2	6
+                absolute	RRA oper	6F	3	6
+                absolut,X	RRA oper,X	7F	3	7
+                absolut,Y	RRA oper,Y	7B	3	7
+                (indirect,X)	RRA (oper,X)	63	2	8
+                (indirect),Y	RRA (oper),Y	73	2	8 */
+            0x67 | 0x77 | 0x6F | 0x7F | 0x7B | 0x63 | 0x73 => {}
             _ => {
                 panic!("unimplemented op {:#02x}", instr)
             }
@@ -1825,6 +2033,7 @@ impl NES {
             self.cpu, self.cycles
         )
         .unwrap();
+
         return Ok(stepstring);
     }
 

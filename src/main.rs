@@ -1,6 +1,6 @@
 //need this for carrying add function in ADC
 #![feature(bigint_helper_methods)]
-
+#![feature(mixed_integer_ops)]
 use std::fs;
 
 mod cart;
@@ -48,6 +48,9 @@ fn main() {
     //make our full system and add a breakpoint at the test rom entry address
     let mut nes = NES::new(cpu, cart, wram);
     nes.add_breakpoint(0xC000);
+
+    //nes.add_breakpoint(0xC6C8);
+
     //nes.add_breakpoint(0xC5FD);
 
     let runner_handle = thread::Builder::new()
