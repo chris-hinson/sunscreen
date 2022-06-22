@@ -162,7 +162,7 @@ impl NES {
             }
             AddrMode::ABSX => {
                 let base_addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
-                let addr = base_addr + self.cpu.X as u16;
+                let addr = base_addr.wrapping_add(self.cpu.X as u16);
 
                 //must incur a cycle penalty if we cross pages
                 let base_page = base_addr & 0xFF00;
@@ -175,7 +175,7 @@ impl NES {
             }
             AddrMode::ABSY => {
                 let base_addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
-                let addr = base_addr + self.cpu.Y as u16;
+                let addr = base_addr.wrapping_add(self.cpu.Y as u16);
 
                 //must incur a cycle penalty if we cross pages
                 let base_page = base_addr & 0xFF00;
@@ -190,10 +190,38 @@ impl NES {
                 unimplemented!("INDIRECT ADDRESSING NOT IMPLEMENTED")
             }
             AddrMode::INDX => {
-                unimplemented!("INDIRECT X-INDEXED ADDRESSING NOT IMPLEMENTED")
+                //OPC ($LL,X)
+                //operand is zeropage address;
+                let mut zpg_addr: u16 = bytes[1] as u16;
+                //effective address is word in (LL + X, LL + X + 1), inc. without carry: C.w($00LL + X)
+                zpg_addr = zpg_addr.wrapping_add(self.cpu.X as u16) & 0xFF;
+                //we read from this zeropage address to get our effective address
+                let ea_l = self.read(zpg_addr, 1)[0];
+                //make sure we mask to keep this as a zpg addr
+                zpg_addr = zpg_addr.wrapping_add(1) & 0xFF;
+                let ea_h = self.read(zpg_addr, 1)[0];
+                let addr: u16 = ea_l as u16 | (ea_h as u16) << 8;
+                //returning the effective address
+                addr
             }
             AddrMode::INDY => {
-                unimplemented!("Y-INDEXED INDIRECT ADDRESSING NOT IMPLEMENTED")
+                //OPC ($LL),Y
+                //operand is zeropage address; effective address is word in (LL, LL + 1) incremented by Y with carry:
+                //C.w($00LL) + Y
+                let mut zpg_addr: u16 = bytes[1] as u16;
+                let ea_l = self.read(zpg_addr, 1)[0];
+                zpg_addr = zpg_addr.wrapping_add(1) & 0xFF;
+                let ea_h = self.read(zpg_addr, 1)[0];
+                let base_addr: u16 = ea_l as u16 | (ea_h as u16) << 8;
+                let addr = base_addr.wrapping_add(self.cpu.Y as u16);
+
+                //must incur a cycle penalty if we cross pages
+                let base_page = base_addr & 0xFF00;
+                let final_page = addr & 0xFF00;
+                if base_page != final_page {
+                    self.cycles += 1;
+                }
+                addr
             }
             AddrMode::REL => {
                 unimplemented!("RELATIVE ADDRESSING NOT IMPLEMENTED")
@@ -203,7 +231,8 @@ impl NES {
                 addr
             }
             AddrMode::ZPGX => {
-                let base_addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
+                //let base_addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
+                let base_addr = bytes[1] as u16;
                 let addr = base_addr + self.cpu.X as u16;
 
                 //might incur a cycle penalty if we cross pages
@@ -250,11 +279,25 @@ impl NES {
             }
             AddrMode::ABSX => {
                 let addr = self.calc_addr(bytes, AddrMode::ABSX);
-                self.read(addr, 1)[0]
+                let val = self.read(addr, 1)[0];
+
+                write!(stepstring, "${addr:04X} = {val:02X}").unwrap();
+
+                val
             }
             AddrMode::ABSY => {
                 let addr = self.calc_addr(bytes, AddrMode::ABSY);
-                self.read(addr, 1)[0]
+                let val = self.read(addr, 1)[0];
+
+                //$0300,Y @ 0300 = 89
+                write!(
+                    stepstring,
+                    "${:04X},Y @ {addr:04X} = {val:02X}",
+                    bytes[1] as u16 | (bytes[2] as u16) << 8
+                )
+                .unwrap();
+
+                val
             }
             AddrMode::IMM => {
                 write!(stepstring, "#${:02X}", bytes[1]).unwrap();
@@ -265,12 +308,43 @@ impl NES {
                 self.read(addr, 1)[0]
             }
             AddrMode::INDX => {
+                //this is our effective(final) address
                 let addr = self.calc_addr(bytes, AddrMode::INDX);
-                self.read(addr, 1)[0]
+                //we read from this address to get our value
+                let val = self.read(addr, 1)[0];
+
+                //bytes , bytes+x, ea, final val
+                //($80,X) @ 80 = 0200 = 5A
+                write!(
+                    stepstring,
+                    "(${:02X},X) @ {:02X} = {:04X} = {:02X}",
+                    bytes[1],
+                    bytes[1].wrapping_add(self.cpu.X),
+                    addr,
+                    val
+                )
+                .unwrap();
+
+                val
             }
             AddrMode::INDY => {
                 let addr = self.calc_addr(bytes, AddrMode::INDY);
-                self.read(addr, 1)[0]
+                let val = self.read(addr, 1)[0];
+
+                // bytes, ea,    +y, val
+                //LDA ($89),Y = 0300 @ 0300 = 89
+                write!(
+                    stepstring,
+                    "(${:02X}),Y = {:04X} @ {:04X} = {:02X}",
+                    bytes[1],
+                    self.read(bytes[1] as u16, 1)[0] as u16
+                        | (self.read((bytes[1] as u16).wrapping_add(1) & 0xFF, 1)[0] as u16) << 8,
+                    addr,
+                    val
+                )
+                .unwrap();
+
+                val
             }
             AddrMode::REL => {
                 let addr = self.calc_addr(bytes, AddrMode::REL);
@@ -287,10 +361,8 @@ impl NES {
                 let val = self.read(addr, 1)[0];
                 write!(
                     stepstring,
-                    "${:04X},X @ {:04X} = {:02X}",
-                    (bytes[1] as u16 | (bytes[2] as u16) << 8),
-                    addr,
-                    val
+                    "${:02X},X @ {:02X} = {:02X}",
+                    bytes[1] as u16, addr, val
                 )
                 .unwrap();
 
@@ -370,8 +442,8 @@ impl NES {
                     0x69 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring),
                     0x65 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
                     0x75 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
-                    0x7D => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
-                    0x6D => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
+                    0x6D => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
+                    0x7D => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
                     0x79 => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring),
                     0x61 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring),
                     0x71 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring),
@@ -860,6 +932,42 @@ impl NES {
 
             /*
             DEC decrement
+                zeropage	DEC oper	C6	2	5
+                zeropage,X	DEC oper,X	D6	2	6
+                absolute	DEC oper	CE	3	6
+                absolute,X	DEC oper,X	DE	3	7
+            */
+            0xC6 | 0xD6 | 0xCE | 0xDE => {
+                let addr = match instr {
+                    0xC6 => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPG);
+                        write!(stepstring, "${addr:02X} = ").unwrap();
+                        addr
+                    }
+                    0xD6 => self.calc_addr(&bytes, AddrMode::ZPGX),
+                    0xCE => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ABS);
+                        write!(stepstring, "${addr:04X} = ").unwrap();
+                        addr
+                    }
+                    0xDE => self.calc_addr(&bytes, AddrMode::ABSX),
+                    _ => unreachable!("IN INC, BUT GOT BAD OP"),
+                };
+
+                let mut val = self.read(addr, 1)[0];
+                write!(stepstring, "{val:02X}").unwrap();
+
+                val = val.wrapping_sub(1);
+                self.write(addr, &vec![val]);
+
+                //NZ
+                self.cpu.SR.N = (val as i8) < 0;
+                self.cpu.SR.Z = val == 0;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+            /*
             DEX decrement X
                 implied	DEX	CA	1	2   */
             0xCA => {
@@ -920,6 +1028,42 @@ impl NES {
 
             /*
             INC increment
+                zeropage	INC oper	E6	2	5
+                zeropage,X	INC oper,X	F6	2	6
+                absolute	INC oper	EE	3	6
+                absolute,X	INC oper,X	FE	3	7  */
+            0xE6 | 0xF6 | 0xEE | 0xFE => {
+                let addr = match instr {
+                    0xE6 => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPG);
+                        write!(stepstring, "${addr:02X} = ").unwrap();
+                        addr
+                    }
+                    0xF6 => self.calc_addr(&bytes, AddrMode::ZPGX),
+                    0xEE => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ABS);
+                        write!(stepstring, "${addr:04X} = ").unwrap();
+                        addr
+                    }
+                    0xFE => self.calc_addr(&bytes, AddrMode::ABSX),
+                    _ => unreachable!("IN INC, BUT GOT BAD OP"),
+                };
+
+                let mut val = self.read(addr, 1)[0];
+                write!(stepstring, "{val:02X}").unwrap();
+
+                val = val.wrapping_add(1);
+                self.write(addr, &vec![val]);
+
+                //NZ
+                self.cpu.SR.N = (val as i8) < 0;
+                self.cpu.SR.Z = val == 0;
+
+                self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+                self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+            }
+
+            /*
             INX increment X
                 X + 1 -> X */
             0xE8 => {
@@ -953,11 +1097,22 @@ impl NES {
                     write!(stepstring, "${imm:04X}").unwrap();
                     imm
                 } else {
-                    let addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
-                    let bytes = self.read(addr, 2);
-                    let val = bytes[1] as u16 | (bytes[2] as u16) << 8;
-                    write!(stepstring, "(${addr:04X}) = {val:04X}").unwrap();
-                    val
+                    //base addr is given by the opcode
+                    let base_addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
+                    //we read the first byte of the target address
+                    let new_lo = self.read(base_addr, 1)[0];
+
+                    //we have to make sure we wrap around page boundaries when adding 1
+                    let addr_hi = ((base_addr & 0xFF00) >> 8) as u8;
+                    let mut addr_lo = (base_addr & 0xFF) as u8;
+                    addr_lo = addr_lo.wrapping_add(1);
+                    let addr2 = addr_lo as u16 | (addr_hi as u16) << 8;
+                    //read the second byte of the target address
+                    let new_hi = self.read(addr2, 1)[0];
+
+                    let new_pc = new_lo as u16 | (new_hi as u16) << 8;
+                    write!(stepstring, "(${base_addr:04X}) = {new_pc:04X}").unwrap();
+                    new_pc
                 };
 
                 self.cpu.PC = target;
@@ -1488,14 +1643,45 @@ impl NES {
                     }
                     0x99 => {
                         let addr = self.calc_addr(&bytes, AddrMode::ABSY);
+
+                        //$0400,Y @ 0400 = 7F
+                        let _just_for_printing =
+                            self.get_val(&bytes, AddrMode::ABSY, &mut stepstring);
                         addr
                     }
                     0x81 => {
                         let addr = self.calc_addr(&bytes, AddrMode::INDX);
+
+                        //bytes , bytes+x, ea, final val
+                        //STA ($80,X) @ 80 = 0200 = 5A
+                        write!(
+                            stepstring,
+                            "(${:02X},X) @ {:02X} = {:04X} = {:02X}",
+                            bytes[1],
+                            bytes[1].wrapping_add(self.cpu.X),
+                            addr,
+                            self.read(addr, 1)[0]
+                        )
+                        .unwrap();
+
                         addr
                     }
                     0x91 => {
                         let addr = self.calc_addr(&bytes, AddrMode::INDY);
+                        /*//bytes , bytes+x, ea, final val
+                        //STA ($80,X) @ 80 = 0200 = 5A
+                        write!(
+                            stepstring,
+                            "(${:02X},X) @ {:02X} = {:04X} = {:02X}",
+                            bytes[1],
+                            bytes[1].wrapping_add(self.cpu.X),
+                            addr,
+                            self.read(addr, 1)[0]
+                        )
+                        .unwrap();*/
+
+                        //use this for its side effect of printing to the stepstring
+                        let _cur_val_there = self.get_val(&bytes, AddrMode::INDY, &mut stepstring);
                         addr
                     }
                     _ => {

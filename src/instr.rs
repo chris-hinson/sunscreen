@@ -185,6 +185,14 @@ impl Instr {
             (0x76, InstrData::new("ROR", 2, 6)),
             (0x6E, InstrData::new("ROR", 3, 6)),
             (0x7E, InstrData::new("ROR", 3, 7)),
+            (0xE6, InstrData::new("INC", 2, 5)),
+            (0xF6, InstrData::new("INC", 2, 6)),
+            (0xEE, InstrData::new("INC", 3, 6)),
+            (0xFE, InstrData::new("INC", 3, 7)),
+            (0xC6, InstrData::new("DEC", 2, 5)),
+            (0xD6, InstrData::new("DEC", 2, 6)),
+            (0xCE, InstrData::new("DEC", 3, 6)),
+            (0xDE, InstrData::new("DEC", 3, 7)),
         ]);
 
         Instr { instrs: map }
