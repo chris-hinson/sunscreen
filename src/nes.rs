@@ -154,7 +154,7 @@ impl NES {
     zpg,Y	zeropage, Y-indexed	OPC $LL,Y	operand is zeropage address; effective address is address incremented by Y without carry **
     */
 
-    pub fn calc_addr(&mut self, bytes: &Vec<u8>, mode: AddrMode) -> u16 {
+    pub fn calc_addr(&mut self, bytes: &Vec<u8>, mode: AddrMode, penalty: bool) -> u16 {
         return match mode {
             AddrMode::ABS => {
                 let addr = (bytes[2] as u16) << 8 | bytes[1] as u16;
@@ -167,7 +167,7 @@ impl NES {
                 //must incur a cycle penalty if we cross pages
                 let base_page = base_addr & 0xFF00;
                 let final_page = addr & 0xFF00;
-                if base_page != final_page {
+                if base_page != final_page && penalty {
                     self.cycles += 1;
                 }
 
@@ -180,7 +180,7 @@ impl NES {
                 //must incur a cycle penalty if we cross pages
                 let base_page = base_addr & 0xFF00;
                 let final_page = addr & 0xFF00;
-                if base_page != final_page {
+                if base_page != final_page && penalty {
                     self.cycles += 1;
                 }
 
@@ -218,7 +218,7 @@ impl NES {
                 //must incur a cycle penalty if we cross pages
                 let base_page = base_addr & 0xFF00;
                 let final_page = addr & 0xFF00;
-                if base_page != final_page {
+                if base_page != final_page && penalty {
                     self.cycles += 1;
                 }
                 addr
@@ -233,29 +233,29 @@ impl NES {
             AddrMode::ZPGX => {
                 //let base_addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
                 let base_addr = bytes[1] as u16;
-                let addr = base_addr + self.cpu.X as u16;
+                let addr = base_addr.wrapping_add(self.cpu.X as u16);
 
                 //might incur a cycle penalty if we cross pages
                 let base_page = base_addr & 0xFF00;
                 let final_page = addr & 0xFF00;
-                if base_page != final_page {
+                if base_page != final_page && penalty {
                     self.cycles += 1;
                 }
 
-                addr
+                addr & 0xFF
             }
             AddrMode::ZPGY => {
-                let base_addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
-                let addr = base_addr + self.cpu.Y as u16;
+                let base_addr = bytes[1] as u16;
+                let addr = base_addr.wrapping_add(self.cpu.Y as u16);
 
                 //might incur a cycle penalty if we cross pages
                 let base_page = base_addr & 0xFF00;
                 let final_page = addr & 0xFF00;
-                if base_page != final_page {
+                if base_page != final_page && penalty {
                     self.cycles += 1;
                 }
 
-                addr
+                addr & 0xFF
             }
             _ => panic!("TRIED TO CALCULATE ADDRESS FOR AN ADDRESSING MODE WITH NO ADDRESS"),
         };
@@ -263,7 +263,13 @@ impl NES {
 
     //uses calc_addr func to figure out our effective address, then reads the byte at that addr
     //takes our stepstring buffer as an arg so it can write debug info into it
-    pub fn get_val(&mut self, bytes: &Vec<u8>, mode: AddrMode, stepstring: &mut String) -> u8 {
+    pub fn get_val(
+        &mut self,
+        bytes: &Vec<u8>,
+        mode: AddrMode,
+        stepstring: &mut String,
+        penalty: bool,
+    ) -> u8 {
         //NOTE: this is split out as a match case because we need to print different stuff based on
         // addr mode, otherwise we could just always calc addr and read a byte
         return match mode {
@@ -272,21 +278,26 @@ impl NES {
                 self.cpu.ACC
             }
             AddrMode::ABS => {
-                let addr = self.calc_addr(bytes, AddrMode::ABS);
+                let addr = self.calc_addr(bytes, AddrMode::ABS, penalty);
                 let val = self.read(addr, 1)[0];
                 write!(stepstring, "${:04X} = {:02X}", addr, val).unwrap();
                 val
             }
             AddrMode::ABSX => {
-                let addr = self.calc_addr(bytes, AddrMode::ABSX);
+                let addr = self.calc_addr(bytes, AddrMode::ABSX, penalty);
                 let val = self.read(addr, 1)[0];
 
-                write!(stepstring, "${addr:04X} = {val:02X}").unwrap();
+                write!(
+                    stepstring,
+                    "${:04X},X @ {addr:04X} = {val:02X}",
+                    bytes[1] as u16 | (bytes[2] as u16) << 8
+                )
+                .unwrap();
 
                 val
             }
             AddrMode::ABSY => {
-                let addr = self.calc_addr(bytes, AddrMode::ABSY);
+                let addr = self.calc_addr(bytes, AddrMode::ABSY, penalty);
                 let val = self.read(addr, 1)[0];
 
                 //$0300,Y @ 0300 = 89
@@ -304,12 +315,12 @@ impl NES {
                 bytes[1]
             }
             AddrMode::IND => {
-                let addr = self.calc_addr(bytes, AddrMode::IND);
+                let addr = self.calc_addr(bytes, AddrMode::IND, penalty);
                 self.read(addr, 1)[0]
             }
             AddrMode::INDX => {
                 //this is our effective(final) address
-                let addr = self.calc_addr(bytes, AddrMode::INDX);
+                let addr = self.calc_addr(bytes, AddrMode::INDX, penalty);
                 //we read from this address to get our value
                 let val = self.read(addr, 1)[0];
 
@@ -328,7 +339,7 @@ impl NES {
                 val
             }
             AddrMode::INDY => {
-                let addr = self.calc_addr(bytes, AddrMode::INDY);
+                let addr = self.calc_addr(bytes, AddrMode::INDY, penalty);
                 let val = self.read(addr, 1)[0];
 
                 // bytes, ea,    +y, val
@@ -347,17 +358,17 @@ impl NES {
                 val
             }
             AddrMode::REL => {
-                let addr = self.calc_addr(bytes, AddrMode::REL);
+                let addr = self.calc_addr(bytes, AddrMode::REL, penalty);
                 self.read(addr, 1)[0]
             }
             AddrMode::ZPG => {
-                let addr = self.calc_addr(bytes, AddrMode::ZPG);
+                let addr = self.calc_addr(bytes, AddrMode::ZPG, penalty);
                 let val = self.read(addr, 1)[0];
                 write!(stepstring, "${:02X} = {:02X}", addr as u8, val).unwrap();
                 val
             }
             AddrMode::ZPGX => {
-                let addr = self.calc_addr(bytes, AddrMode::ZPGX);
+                let addr = self.calc_addr(bytes, AddrMode::ZPGX, penalty);
                 let val = self.read(addr, 1)[0];
                 write!(
                     stepstring,
@@ -369,14 +380,12 @@ impl NES {
                 val
             }
             AddrMode::ZPGY => {
-                let addr = self.calc_addr(bytes, AddrMode::ZPGY);
+                let addr = self.calc_addr(bytes, AddrMode::ZPGY, penalty);
                 let val = self.read(addr, 1)[0];
                 write!(
                     stepstring,
-                    "${:04X},X @ {:04X} = {:02X}",
-                    (bytes[1] as u16 | (bytes[2] as u16) << 8),
-                    addr,
-                    val
+                    "${:02X},Y @ {:02X} = {:02X}",
+                    bytes[1] as u16, addr, val
                 )
                 .unwrap();
 
@@ -439,14 +448,14 @@ impl NES {
                 (indirect),Y	ADC (oper),Y	71	2	5* */
             0x69 | 0x65 | 0x75 | 0x6D | 0x7D | 0x79 | 0x61 | 0x71 => {
                 let val: u8 = match instr {
-                    0x69 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring),
-                    0x65 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
-                    0x75 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
-                    0x6D => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
-                    0x7D => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
-                    0x79 => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring),
-                    0x61 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring),
-                    0x71 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring),
+                    0x69 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring, false),
+                    0x65 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false),
+                    0x75 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring, false),
+                    0x6D => self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false),
+                    0x7D => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring, true),
+                    0x79 => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring, true),
+                    0x61 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring, false),
+                    0x71 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring, true),
                     _ => {
                         unreachable!("IN ADC, BUT GOT INVALID OPCODE")
                     }
@@ -489,14 +498,14 @@ impl NES {
                 (indirect),Y	AND (oper),Y	31	2	5* */
             0x29 | 0x25 | 0x35 | 0x2D | 0x3D | 0x39 | 0x21 | 0x31 => {
                 let val: u8 = match instr {
-                    0x29 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring),
-                    0x25 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
-                    0x35 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
-                    0x2D => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
-                    0x3D => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
-                    0x39 => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring),
-                    0x21 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring),
-                    0x31 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring),
+                    0x29 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring, false),
+                    0x25 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false),
+                    0x35 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring, false),
+                    0x2D => self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false),
+                    0x3D => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring, true),
+                    0x39 => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring, true),
+                    0x21 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring, false),
+                    0x31 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring, true),
                     _ => {
                         panic!("IN AND, BUT GOT INVALID OPCODE")
                     }
@@ -520,11 +529,11 @@ impl NES {
                 absolute,X	ASL oper,X	1E	3	7  */
             0x0A | 0x06 | 0x16 | 0x0E | 0x1E => {
                 let mut val = match instr {
-                    0x0A => self.get_val(&bytes, AddrMode::ACC, &mut stepstring),
-                    0x06 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
-                    0x16 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
-                    0x0E => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
-                    0x1E => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
+                    0x0A => self.get_val(&bytes, AddrMode::ACC, &mut stepstring, false),
+                    0x06 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false),
+                    0x16 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring, false),
+                    0x0E => self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false),
+                    0x1E => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring, false),
                     _ => unreachable!("IN ASL BUT GOT BAD OPCOODE"),
                 };
 
@@ -537,19 +546,19 @@ impl NES {
                 match instr {
                     0x0A => self.cpu.ACC = val,
                     0x06 => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ZPG);
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPG, true);
                         self.write(addr, &vec![val])
                     }
                     0x16 => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ZPGX);
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPGX, true);
                         self.write(addr, &vec![val])
                     }
                     0x0E => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ABS);
+                        let addr = self.calc_addr(&bytes, AddrMode::ABS, true);
                         self.write(addr, &vec![val])
                     }
                     0x1E => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ABSX);
+                        let addr = self.calc_addr(&bytes, AddrMode::ABSX, true);
                         self.write(addr, &vec![val])
                     }
                     _ => unreachable!("IN LSR BUT GOT BAD OPCOODE"),
@@ -640,9 +649,9 @@ impl NES {
                 absolute	BIT oper	2C	3	4  */
             0x24 | 0x2C => {
                 let val: u8 = if instr == 0x24 {
-                    self.get_val(&bytes, AddrMode::ZPG, &mut stepstring)
+                    self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false)
                 } else {
-                    self.get_val(&bytes, AddrMode::ABS, &mut stepstring)
+                    self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false)
                 };
 
                 //N = m7
@@ -846,17 +855,14 @@ impl NES {
                 (indirect),Y	CMP (oper),Y	D1	2	5* */
             0xC9 | 0xC5 | 0xD5 | 0xCD | 0xDD | 0xD9 | 0xC1 | 0xD1 => {
                 let val: u8 = match instr {
-                    //imm
-                    0xC9 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring),
-                    //zpg
-                    0xC5 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
-                    //zpg,x
-                    0xD5 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
-                    0xCD => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
-                    0xDD => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
-                    0xD9 => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring),
-                    0xC1 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring),
-                    0xD1 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring),
+                    0xC9 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring, false),
+                    0xC5 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false),
+                    0xD5 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring, false),
+                    0xCD => self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false),
+                    0xDD => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring, true),
+                    0xD9 => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring, true),
+                    0xC1 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring, false),
+                    0xD1 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring, true),
                     _ => {
                         unimplemented!("IN CMP BUT GOT ILLEGAL OPCODE")
                     }
@@ -883,9 +889,9 @@ impl NES {
                 absolute	CPX oper	EC	3	4  */
             0xE0 | 0xE4 | 0xEC => {
                 let val: u8 = match instr {
-                    0xE0 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring),
-                    0xE4 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
-                    0xEC => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
+                    0xE0 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring, false),
+                    0xE4 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false),
+                    0xEC => self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false),
                     _ => panic!("IN CPX BUT GOT BAD OPCODE"),
                 };
 
@@ -910,9 +916,9 @@ impl NES {
                 absolute	CPY oper	CC	3	4  */
             0xC0 | 0xC4 | 0xCC => {
                 let val: u8 = match instr {
-                    0xC0 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring),
-                    0xC4 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
-                    0xCC => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
+                    0xC0 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring, false),
+                    0xC4 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false),
+                    0xCC => self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false),
                     _ => panic!("IN CPX BUT GOT BAD OPCODE"),
                 };
 
@@ -940,22 +946,30 @@ impl NES {
             0xC6 | 0xD6 | 0xCE | 0xDE => {
                 let addr = match instr {
                     0xC6 => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ZPG);
-                        write!(stepstring, "${addr:02X} = ").unwrap();
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPG, true);
+                        self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false);
                         addr
                     }
-                    0xD6 => self.calc_addr(&bytes, AddrMode::ZPGX),
+                    0xD6 => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPGX, true);
+                        self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring, false);
+                        addr
+                    }
                     0xCE => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ABS);
-                        write!(stepstring, "${addr:04X} = ").unwrap();
+                        let addr = self.calc_addr(&bytes, AddrMode::ABS, true);
+                        self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false);
                         addr
                     }
-                    0xDE => self.calc_addr(&bytes, AddrMode::ABSX),
+                    0xDE => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ABSX, true);
+                        self.get_val(&bytes, AddrMode::ABSX, &mut stepstring, false);
+                        addr
+                    }
                     _ => unreachable!("IN INC, BUT GOT BAD OP"),
                 };
 
                 let mut val = self.read(addr, 1)[0];
-                write!(stepstring, "{val:02X}").unwrap();
+                //write!(stepstring, "{val:02X}").unwrap();
 
                 val = val.wrapping_sub(1);
                 self.write(addr, &vec![val]);
@@ -1004,14 +1018,14 @@ impl NES {
                 (indirect),Y	EOR (oper),Y	51	2	5* */
             0x49 | 0x45 | 0x55 | 0x4D | 0x5D | 0x59 | 0x41 | 0x51 => {
                 let val: u8 = match instr {
-                    0x49 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring),
-                    0x45 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
-                    0x55 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
-                    0x4D => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
-                    0x5D => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
-                    0x59 => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring),
-                    0x41 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring),
-                    0x51 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring),
+                    0x49 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring, false),
+                    0x45 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false),
+                    0x55 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring, false),
+                    0x4D => self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false),
+                    0x5D => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring, true),
+                    0x59 => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring, true),
+                    0x41 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring, false),
+                    0x51 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring, true),
                     _ => {
                         panic!("IN EOR, BUT INVALID OPCODE")
                     }
@@ -1035,22 +1049,30 @@ impl NES {
             0xE6 | 0xF6 | 0xEE | 0xFE => {
                 let addr = match instr {
                     0xE6 => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ZPG);
-                        write!(stepstring, "${addr:02X} = ").unwrap();
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPG, true);
+                        //write!(stepstring, "${addr:02X} = ").unwrap();
+                        self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false);
                         addr
                     }
-                    0xF6 => self.calc_addr(&bytes, AddrMode::ZPGX),
+                    0xF6 => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPGX, true);
+                        self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring, false);
+                        addr
+                    }
                     0xEE => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ABS);
-                        write!(stepstring, "${addr:04X} = ").unwrap();
+                        let addr = self.calc_addr(&bytes, AddrMode::ABS, true);
+                        self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false);
                         addr
                     }
-                    0xFE => self.calc_addr(&bytes, AddrMode::ABSX),
+                    0xFE => {
+                        let addr = self.calc_addr(&bytes, AddrMode::ABSX, true);
+                        self.get_val(&bytes, AddrMode::ABSX, &mut stepstring, false);
+                        addr
+                    }
                     _ => unreachable!("IN INC, BUT GOT BAD OP"),
                 };
 
                 let mut val = self.read(addr, 1)[0];
-                write!(stepstring, "{val:02X}").unwrap();
 
                 val = val.wrapping_add(1);
                 self.write(addr, &vec![val]);
@@ -1155,22 +1177,14 @@ impl NES {
                 (indirect),Y	LDA (oper),Y	B1	2	5* */
             0xA9 | 0xA5 | 0xB5 | 0xAD | 0xBD | 0xB9 | 0xA1 | 0xB1 => {
                 let val: u8 = match instr {
-                    //imm
-                    0xA9 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring),
-                    //zeropage
-                    0xA5 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
-                    //zeropage,x
-                    0xB5 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
-                    //abs
-                    0xAD => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
-                    //abs,x
-                    0xBD => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
-                    //abs,y
-                    0xB9 => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring),
-                    //(indirect,X)
-                    0xA1 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring),
-                    //(indirect),Y
-                    0xB1 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring),
+                    0xA9 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring, false),
+                    0xA5 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false),
+                    0xB5 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring, false),
+                    0xAD => self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false),
+                    0xBD => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring, true),
+                    0xB9 => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring, true),
+                    0xA1 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring, false),
+                    0xB1 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring, true),
                     _ => {
                         panic!("IN LDA, BUT SOMEHOW GOT INVALID OP")
                     }
@@ -1194,11 +1208,11 @@ impl NES {
                 absolute,Y	LDX oper,Y	BE	3	4* */
             0xA2 | 0xA6 | 0xB6 | 0xAE | 0xBE => {
                 let val = match instr {
-                    0xA2 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring),
-                    0xA6 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
-                    0xB6 => self.get_val(&bytes, AddrMode::ZPGY, &mut stepstring),
-                    0xAE => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
-                    0xBE => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring),
+                    0xA2 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring, false),
+                    0xA6 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false),
+                    0xB6 => self.get_val(&bytes, AddrMode::ZPGY, &mut stepstring, false),
+                    0xAE => self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false),
+                    0xBE => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring, true),
                     _ => panic!("IN LDX, BUT GOT BAD OP"),
                 };
 
@@ -1224,11 +1238,11 @@ impl NES {
                 absolute,X	LDY oper,X	BC	3	4*  */
             0xA0 | 0xA4 | 0xB4 | 0xAC | 0xBC => {
                 let val = match instr {
-                    0xA0 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring),
-                    0xA4 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
-                    0xB4 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
-                    0xAC => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
-                    0xBC => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
+                    0xA0 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring, false),
+                    0xA4 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false),
+                    0xB4 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring, false),
+                    0xAC => self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false),
+                    0xBC => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring, true),
                     _ => panic!("IN LDY BUT GOT BAD OPCODE"),
                 };
 
@@ -1253,11 +1267,11 @@ impl NES {
                 absolute,X	LSR oper,X	5E	3	7 */
             0x4A | 0x46 | 0x56 | 0x4E | 0x5E => {
                 let mut val = match instr {
-                    0x4A => self.get_val(&bytes, AddrMode::ACC, &mut stepstring),
-                    0x46 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
-                    0x56 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
-                    0x4E => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
-                    0x5E => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
+                    0x4A => self.get_val(&bytes, AddrMode::ACC, &mut stepstring, false),
+                    0x46 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false),
+                    0x56 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring, false),
+                    0x4E => self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false),
+                    0x5E => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring, false),
                     _ => unreachable!("IN LSR BUT GOT BAD OPCOODE"),
                 };
 
@@ -1270,19 +1284,19 @@ impl NES {
                 match instr {
                     0x4A => self.cpu.ACC = val,
                     0x46 => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ZPG);
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPG, true);
                         self.write(addr, &vec![val])
                     }
                     0x56 => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ZPGX);
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPGX, true);
                         self.write(addr, &vec![val])
                     }
                     0x4E => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ABS);
+                        let addr = self.calc_addr(&bytes, AddrMode::ABS, true);
                         self.write(addr, &vec![val])
                     }
                     0x5E => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ABSX);
+                        let addr = self.calc_addr(&bytes, AddrMode::ABSX, true);
                         self.write(addr, &vec![val])
                     }
                     _ => unreachable!("IN LSR BUT GOT BAD OPCOODE"),
@@ -1311,18 +1325,14 @@ impl NES {
                 (indirect),Y	ORA (oper),Y	11	2	5* */
             0x09 | 0x05 | 0x15 | 0x0D | 0x1D | 0x19 | 0x01 | 0x11 => {
                 let val: u8 = match instr {
-                    0x09 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring),
-                    0x05 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
-                    //zeropage,x
-                    0x15 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
-                    //abs
-                    0x0D => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
-                    //abs,x
-                    0x1D => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
-                    //abs y
-                    0x19 => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring),
-                    0x01 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring),
-                    0x11 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring),
+                    0x09 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring, false),
+                    0x05 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false),
+                    0x15 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring, false),
+                    0x0D => self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false),
+                    0x1D => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring, true),
+                    0x19 => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring, true),
+                    0x01 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring, false),
+                    0x11 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring, true),
                     _ => {
                         panic!("IN OR, BUT GOT INVALID OPCODE")
                     }
@@ -1409,11 +1419,11 @@ impl NES {
                 absolute,X	ROL oper,X	3E	3	7  */
             0x2A | 0x26 | 0x36 | 0x2E | 0x3E => {
                 let mut val: u8 = match instr {
-                    0x2A => self.get_val(&bytes, AddrMode::ACC, &mut stepstring),
-                    0x26 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
-                    0x36 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
-                    0x2E => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
-                    0x3E => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
+                    0x2A => self.get_val(&bytes, AddrMode::ACC, &mut stepstring, false),
+                    0x26 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false),
+                    0x36 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring, false),
+                    0x2E => self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false),
+                    0x3E => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring, false),
                     _ => unreachable!("IN ROL BUT GOT BAD OP"),
                 };
 
@@ -1431,19 +1441,19 @@ impl NES {
                 match instr {
                     0x2A => self.cpu.ACC = val,
                     0x26 => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ZPG);
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPG, true);
                         self.write(addr, &vec![val])
                     }
                     0x36 => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ZPGX);
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPGX, true);
                         self.write(addr, &vec![val])
                     }
                     0x2E => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ABS);
+                        let addr = self.calc_addr(&bytes, AddrMode::ABS, true);
                         self.write(addr, &vec![val])
                     }
                     0x3E => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ABSX);
+                        let addr = self.calc_addr(&bytes, AddrMode::ABSX, true);
                         self.write(addr, &vec![val])
                     }
                     _ => unreachable!("IN ROL BUT GOT BAD OPCOODE"),
@@ -1462,11 +1472,11 @@ impl NES {
                 absolute,X	ROR oper,X	7E	3	7 */
             0x6A | 0x66 | 0x76 | 0x6E | 0x7E => {
                 let mut val: u8 = match instr {
-                    0x6A => self.get_val(&bytes, AddrMode::ACC, &mut stepstring),
-                    0x66 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
-                    0x76 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
-                    0x6E => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
-                    0x7E => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
+                    0x6A => self.get_val(&bytes, AddrMode::ACC, &mut stepstring, false),
+                    0x66 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false),
+                    0x76 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring, false),
+                    0x6E => self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false),
+                    0x7E => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring, false),
                     _ => unreachable!("IN ROR BUT GOT BAD OP"),
                 };
 
@@ -1485,19 +1495,19 @@ impl NES {
                 match instr {
                     0x6A => self.cpu.ACC = val,
                     0x66 => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ZPG);
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPG, true);
                         self.write(addr, &vec![val])
                     }
                     0x76 => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ZPGX);
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPGX, true);
                         self.write(addr, &vec![val])
                     }
                     0x6E => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ABS);
+                        let addr = self.calc_addr(&bytes, AddrMode::ABS, true);
                         self.write(addr, &vec![val])
                     }
                     0x7E => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ABSX);
+                        let addr = self.calc_addr(&bytes, AddrMode::ABSX, true);
                         self.write(addr, &vec![val])
                     }
                     _ => unreachable!("IN ROR BUT GOT BAD OPCOODE"),
@@ -1551,14 +1561,14 @@ impl NES {
                 (indirect),Y	SBC (oper),Y	F1	2	5* */
             0xE9 | 0xE5 | 0xF5 | 0xED | 0xFD | 0xF9 | 0xE1 | 0xF1 => {
                 let val: u8 = match instr {
-                    0xE9 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring),
-                    0xE5 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring),
-                    0xF5 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring),
-                    0xED => self.get_val(&bytes, AddrMode::ABS, &mut stepstring),
-                    0xFD => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring),
-                    0xF9 => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring),
-                    0xE1 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring),
-                    0xF1 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring),
+                    0xE9 => self.get_val(&bytes, AddrMode::IMM, &mut stepstring, false),
+                    0xE5 => self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false),
+                    0xF5 => self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring, false),
+                    0xED => self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false),
+                    0xFD => self.get_val(&bytes, AddrMode::ABSX, &mut stepstring, true),
+                    0xF9 => self.get_val(&bytes, AddrMode::ABSY, &mut stepstring, true),
+                    0xE1 => self.get_val(&bytes, AddrMode::INDX, &mut stepstring, false),
+                    0xF1 => self.get_val(&bytes, AddrMode::INDY, &mut stepstring, true),
                     _ => panic!("IN SBC BUT GOT BAD OPCODE"),
                 };
 
@@ -1622,66 +1632,43 @@ impl NES {
                 //LDA $addr = val is WHAT IS CURRENTLY AT THAT ADDR BEFORE OUR STORE???
                 let addr: u16 = match instr {
                     0x85 => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ZPG);
-                        write!(stepstring, "${:02X} = {:02X}", addr, self.read(addr, 1)[0])
-                            .unwrap();
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPG, false);
+                        self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false);
+
                         addr
                     }
                     0x95 => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ZPGX);
+                        let addr = self.calc_addr(&bytes, AddrMode::ZPGX, false);
+                        self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring, false);
+
                         addr
                     }
                     0x8D => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ABS);
-                        write!(stepstring, "${:04X} = {:02X}", addr, self.read(addr, 1)[0])
-                            .unwrap();
+                        let addr = self.calc_addr(&bytes, AddrMode::ABS, false);
+                        self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false);
+
                         addr
                     }
                     0x9D => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ABSX);
+                        let addr = self.calc_addr(&bytes, AddrMode::ABSX, false);
+                        self.get_val(&bytes, AddrMode::ABSX, &mut stepstring, false);
+
                         addr
                     }
                     0x99 => {
-                        let addr = self.calc_addr(&bytes, AddrMode::ABSY);
-
-                        //$0400,Y @ 0400 = 7F
-                        let _just_for_printing =
-                            self.get_val(&bytes, AddrMode::ABSY, &mut stepstring);
+                        let addr = self.calc_addr(&bytes, AddrMode::ABSY, false);
+                        self.get_val(&bytes, AddrMode::ABSY, &mut stepstring, false);
                         addr
                     }
                     0x81 => {
-                        let addr = self.calc_addr(&bytes, AddrMode::INDX);
+                        let addr = self.calc_addr(&bytes, AddrMode::INDX, false);
 
-                        //bytes , bytes+x, ea, final val
-                        //STA ($80,X) @ 80 = 0200 = 5A
-                        write!(
-                            stepstring,
-                            "(${:02X},X) @ {:02X} = {:04X} = {:02X}",
-                            bytes[1],
-                            bytes[1].wrapping_add(self.cpu.X),
-                            addr,
-                            self.read(addr, 1)[0]
-                        )
-                        .unwrap();
-
+                        self.get_val(&bytes, AddrMode::INDX, &mut stepstring, false);
                         addr
                     }
                     0x91 => {
-                        let addr = self.calc_addr(&bytes, AddrMode::INDY);
-                        /*//bytes , bytes+x, ea, final val
-                        //STA ($80,X) @ 80 = 0200 = 5A
-                        write!(
-                            stepstring,
-                            "(${:02X},X) @ {:02X} = {:04X} = {:02X}",
-                            bytes[1],
-                            bytes[1].wrapping_add(self.cpu.X),
-                            addr,
-                            self.read(addr, 1)[0]
-                        )
-                        .unwrap();*/
-
-                        //use this for its side effect of printing to the stepstring
-                        let _cur_val_there = self.get_val(&bytes, AddrMode::INDY, &mut stepstring);
+                        let addr = self.calc_addr(&bytes, AddrMode::INDY, false);
+                        self.get_val(&bytes, AddrMode::INDY, &mut stepstring, false);
                         addr
                     }
                     _ => {
@@ -1704,17 +1691,19 @@ impl NES {
                 //note: for some fucking reason, the log wants us to say what is at that address
                 //BEFORE we write to it
                 let addr = if instr == 0x86 {
-                    let addr = self.calc_addr(&bytes, AddrMode::ZPG);
+                    let addr = self.calc_addr(&bytes, AddrMode::ZPG, false);
                     let cur_val = self.read(addr, 1)[0];
-                    write!(stepstring, "${:02X} = {:02X}", addr, cur_val).unwrap();
+                    self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false);
                     addr
                 } else if instr == 0x96 {
-                    let addr = self.calc_addr(&bytes, AddrMode::ZPGY);
+                    let addr = self.calc_addr(&bytes, AddrMode::ZPGY, false);
+                    self.get_val(&bytes, AddrMode::ZPGY, &mut stepstring, false);
+
                     addr
                 } else {
-                    let addr = self.calc_addr(&bytes, AddrMode::ABS);
+                    let addr = self.calc_addr(&bytes, AddrMode::ABS, false);
                     let cur_val = self.read(addr, 1)[0];
-                    write!(stepstring, "${:04X} = {:02X}", addr, cur_val).unwrap();
+                    self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false);
                     addr
                 };
 
@@ -1731,17 +1720,19 @@ impl NES {
                 absolute	STY oper	8C	3	4  */
             0x84 | 0x94 | 0x8C => {
                 let addr = if instr == 0x84 {
-                    let addr = self.calc_addr(&bytes, AddrMode::ZPG);
+                    let addr = self.calc_addr(&bytes, AddrMode::ZPG, false);
                     let cur_val = self.read(addr, 1)[0];
-                    write!(stepstring, "${:02X} = {:02X}", addr, cur_val).unwrap();
+                    self.get_val(&bytes, AddrMode::ZPG, &mut stepstring, false);
                     addr
                 } else if instr == 0x94 {
-                    let addr = self.calc_addr(&bytes, AddrMode::ZPGX);
+                    let addr = self.calc_addr(&bytes, AddrMode::ZPGX, false);
+                    self.get_val(&bytes, AddrMode::ZPGX, &mut stepstring, false);
                     addr
                 } else {
-                    let addr = self.calc_addr(&bytes, AddrMode::ABS);
+                    let addr = self.calc_addr(&bytes, AddrMode::ABS, false);
                     let cur_val = self.read(addr, 1)[0];
-                    write!(stepstring, "${:04X} = {:02X}", addr, cur_val).unwrap();
+                    self.get_val(&bytes, AddrMode::ABS, &mut stepstring, false);
+
                     addr
                 };
 
