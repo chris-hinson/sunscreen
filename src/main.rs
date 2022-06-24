@@ -48,7 +48,7 @@ fn main() {
     //make our full system and add a breakpoint at the test rom entry address
     let mut nes = NES::new(cpu, cart, wram);
     nes.add_breakpoint(0xC000);
-
+    nes.add_breakpoint(0xC689);
     //nes.add_breakpoint(0xC6C8);
 
     //nes.add_breakpoint(0xC5FD);

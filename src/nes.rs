@@ -950,7 +950,10 @@ impl NES {
                 absolut,Y	ISC oper,Y	FB	3	7
                 (indirect,X)	ISC (oper,X)	E3	2	8
                 (indirect),Y	ISC (oper),Y	F3	2	4  */
-            0xE7 | 0xF7 | 0xEF | 0xFF | 0xFB | 0xE3 | 0xF3 => {}
+            0xE7 | 0xF7 | 0xEF | 0xFF | 0xFB | 0xE3 | 0xF3 => {
+                self.IISB(instr, bytes, &mut stepstring)
+            }
+            ,
             /*
             SLO
                 zeropage	SLO oper	07	2	5
@@ -960,7 +963,9 @@ impl NES {
                 absolut,Y	SLO oper,Y	1B	3	7
                 (indirect,X)	SLO (oper,X)	03	2	8
                 (indirect),Y	SLO (oper),Y	13	2	8  */
-            0x07 | 0x17 | 0x0F | 0x1F | 0x1B | 0x03 | 0x13 => {}
+            0x07 | 0x17 | 0x0F | 0x1F | 0x1B | 0x03 | 0x13 => {
+                self.ISLO(instr, bytes, &mut stepstring)
+            }
 
             /*
             RLA
@@ -972,27 +977,33 @@ impl NES {
                 (indirect,X)	RLA (oper,X)	23	2	8
                 (indirect),Y	RLA (oper),Y	33	2	8
             */
-            0x27 | 0x37 | 0x2F | 0x3F | 0x3B | 0x23 | 0x33 => {}
-            /*
+            0x27 | 0x37 | 0x2F | 0x3F | 0x3B | 0x23 | 0x33 => {
+                self.IRLA(instr, bytes, &mut stepstring)
+            }
+            ,/*
             SRE
-                zeropage	SRE oper	47	2	5
-                zeropage,X	SRE oper,X	57	2	6
-                absolute	SRE oper	4F	3	6
-                absolut,X	SRE oper,X	5F	3	7
-                absolut,Y	SRE oper,Y	5B	3	7
-                (indirect,X)	SRE (oper,X)	43	2	8
-                (indirect),Y	SRE (oper),Y	53	2	8 */
-            0x47 | 0x57 | 0x4F | 0x5F | 0x5B | 0x43 | 0x53 => {}
-            /*
+            zeropage	SRE oper	47	2	5
+            zeropage,X	SRE oper,X	57	2	6
+            absolute	SRE oper	4F	3	6
+            absolut,X	SRE oper,X	5F	3	7
+            absolut,Y	SRE oper,Y	5B	3	7
+            (indirect,X)	SRE (oper,X)	43	2	8
+            (indirect),Y	SRE (oper),Y	53	2	8 */
+            0x47 | 0x57 | 0x4F | 0x5F | 0x5B | 0x43 | 0x53 => {
+                self.ISRE(instr, bytes, &mut stepstring)
+            }
+            ,            /*
             RRA
-                zeropage	RRA oper	67	2	5
-                zeropage,X	RRA oper,X	77	2	6
-                absolute	RRA oper	6F	3	6
-                absolut,X	RRA oper,X	7F	3	7
-                absolut,Y	RRA oper,Y	7B	3	7
-                (indirect,X)	RRA (oper,X)	63	2	8
-                (indirect),Y	RRA (oper),Y	73	2	8 */
-            0x67 | 0x77 | 0x6F | 0x7F | 0x7B | 0x63 | 0x73 => {}
+            zeropage	RRA oper	67	2	5
+            zeropage,X	RRA oper,X	77	2	6
+            absolute	RRA oper	6F	3	6
+            absolut,X	RRA oper,X	7F	3	7
+            absolut,Y	RRA oper,Y	7B	3	7
+            (indirect,X)	RRA (oper,X)	63	2	8
+            (indirect),Y	RRA (oper),Y	73	2	8 */
+            0x67 | 0x77 | 0x6F | 0x7F | 0x7B | 0x63 | 0x73 => {
+                self.IRRA(instr, bytes, &mut stepstring)
+            }
             _ => {
                 panic!("unimplemented op {:#02x}", instr)
             }

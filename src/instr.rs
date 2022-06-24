@@ -247,7 +247,8 @@ impl Instr {
             (0xFF, InstrData::new("*ISB", 3, 7)),
             (0xFB, InstrData::new("*ISB", 3, 7)),
             (0xE3, InstrData::new("*ISB", 2, 8)),
-            (0xF3, InstrData::new("*ISB", 2, 4)),
+            //TODO: ACCURATE OR NOT?
+            (0xF3, InstrData::new("*ISB", 2, 8)),
             (0x07, InstrData::new("*SLO", 2, 5)),
             (0x17, InstrData::new("*SLO", 2, 6)),
             (0x0F, InstrData::new("*SLO", 3, 6)),
@@ -1490,6 +1491,353 @@ impl crate::NES {
 
         //TODO: shouldnt this be the other way around????
         self.cpu.SR.C = self.cpu.ACC >= val;
+
+        self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+        self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+    }
+    pub fn IISB(&mut self, instr: u8, bytes: Vec<u8>, stepstring: &mut String) {
+        stepstring.remove(stepstring.len() - 6);
+
+        //INC oper + SBC oper
+        let addr = match instr {
+            0xE7 => self.calc_addr(&bytes, AddrMode::ZPG, false),
+            0xF7 => self.calc_addr(&bytes, AddrMode::ZPGX, false),
+            0xEF => self.calc_addr(&bytes, AddrMode::ABS, false),
+            0xFF => self.calc_addr(&bytes, AddrMode::ABSX, false),
+            0xFB => self.calc_addr(&bytes, AddrMode::ABSY, false),
+            0xE3 => self.calc_addr(&bytes, AddrMode::INDX, false),
+            0xF3 => self.calc_addr(&bytes, AddrMode::INDY, false),
+
+            _ => unreachable!("IN IISB_INC, BUT GOT BAD OP"),
+        };
+
+        let mut val = self.read(addr, 1)[0];
+
+        val = val.wrapping_add(1);
+
+        //NZ
+        self.cpu.SR.N = (val as i8) < 0;
+        self.cpu.SR.Z = val == 0;
+
+        /////////
+        match instr {
+            0xE7 => self.get_val(&bytes, AddrMode::ZPG, stepstring, false),
+            0xF7 => self.get_val(&bytes, AddrMode::ZPGX, stepstring, false),
+            0xEF => self.get_val(&bytes, AddrMode::ABS, stepstring, false),
+            0xFF => self.get_val(&bytes, AddrMode::ABSX, stepstring, false),
+            0xFB => self.get_val(&bytes, AddrMode::ABSY, stepstring, false),
+            0xE3 => self.get_val(&bytes, AddrMode::INDX, stepstring, false),
+            0xF3 => self.get_val(&bytes, AddrMode::INDY, stepstring, false),
+            _ => panic!("IN IISB_SBC BUT GOT BAD OPCODE"),
+        };
+
+        self.write(addr, &vec![val]);
+
+        //A - M - C -> A
+        //NZCV
+
+        //shoutout kamiyaowl's rust nes emulator for this one
+        let sub1 = self.cpu.ACC.overflowing_sub(val);
+        let sub2 = sub1.0.overflowing_sub(if self.cpu.SR.C { 0 } else { 1 });
+
+        self.cpu.SR.Z = sub2.0 == 0;
+        self.cpu.SR.N = (sub2.0 as i8) < 0;
+        self.cpu.SR.C = !(sub1.1 || sub2.1);
+        self.cpu.SR.V =
+            (((self.cpu.ACC ^ val) & 0x80) == 0x80) && (((self.cpu.ACC ^ sub2.0) & 0x80) == 0x80);
+
+        self.cpu.ACC = sub2.0;
+
+        self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+        self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+    }
+    pub fn ISLO(&mut self, instr: u8, bytes: Vec<u8>, stepstring: &mut String) {
+        stepstring.remove(stepstring.len() - 6);
+
+        //ASL oper + ORA oper
+
+        //ASL
+        let mut val = match instr {
+            0x07 => self.get_val_silent(&bytes, AddrMode::ZPG, stepstring, false),
+            0x17 => self.get_val_silent(&bytes, AddrMode::ZPGX, stepstring, false),
+            0x0F => self.get_val_silent(&bytes, AddrMode::ABS, stepstring, false),
+            0x1F => self.get_val_silent(&bytes, AddrMode::ABSX, stepstring, false),
+            0x1B => self.get_val_silent(&bytes, AddrMode::ABSY, stepstring, false),
+            0x03 => self.get_val_silent(&bytes, AddrMode::INDX, stepstring, false),
+            0x13 => self.get_val_silent(&bytes, AddrMode::INDY, stepstring, false),
+            _ => unreachable!("IN ISLO_ASL BUT GOT BAD OPCOODE"),
+        };
+
+        self.cpu.SR.C = (val & 0x80) >> 7 == 1;
+        val = (val << 1) & 0b1111_1110;
+
+        self.cpu.SR.N = (val as i8) < 0;
+        self.cpu.SR.Z = val == 0;
+
+        //ORA
+        match instr {
+            0x07 => self.get_val(&bytes, AddrMode::ZPG, stepstring, false),
+            0x17 => self.get_val(&bytes, AddrMode::ZPGX, stepstring, false),
+            0x0F => self.get_val(&bytes, AddrMode::ABS, stepstring, false),
+            0x1F => self.get_val(&bytes, AddrMode::ABSX, stepstring, false),
+            0x1B => self.get_val(&bytes, AddrMode::ABSY, stepstring, false),
+            0x03 => self.get_val(&bytes, AddrMode::INDX, stepstring, false),
+            0x13 => self.get_val(&bytes, AddrMode::INDY, stepstring, false),
+            _ => {
+                panic!("IN OR, BUT GOT INVALID OPCODE")
+            }
+        };
+
+        match instr {
+            0x07 => {
+                let addr = self.calc_addr(&bytes, AddrMode::ZPG, false);
+                self.write(addr, &vec![val])
+            }
+            0x17 => {
+                let addr = self.calc_addr(&bytes, AddrMode::ZPGX, false);
+                self.write(addr, &vec![val])
+            }
+            0x0F => {
+                let addr = self.calc_addr(&bytes, AddrMode::ABS, false);
+                self.write(addr, &vec![val])
+            }
+            0x1F => {
+                let addr = self.calc_addr(&bytes, AddrMode::ABSX, false);
+                self.write(addr, &vec![val])
+            }
+            0x1B => {
+                let addr = self.calc_addr(&bytes, AddrMode::ABSY, false);
+                self.write(addr, &vec![val])
+            }
+            0x03 => {
+                let addr = self.calc_addr(&bytes, AddrMode::INDX, false);
+                self.write(addr, &vec![val])
+            }
+            0x13 => {
+                let addr = self.calc_addr(&bytes, AddrMode::INDY, false);
+                self.write(addr, &vec![val])
+            }
+            _ => unreachable!("IN LSR BUT GOT BAD OPCOODE"),
+        };
+
+        self.cpu.ACC |= val;
+
+        self.cpu.SR.N = (self.cpu.ACC as i8) < 0;
+        self.cpu.SR.Z = self.cpu.ACC == 0;
+
+        self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+        self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+    }
+    pub fn IRLA(&mut self, instr: u8, bytes: Vec<u8>, stepstring: &mut String) {
+        stepstring.remove(stepstring.len() - 6);
+
+        //ROL oper + AND oper
+        let mut val: u8 = match instr {
+            0x27 => self.get_val(&bytes, AddrMode::ZPG, stepstring, false),
+            0x37 => self.get_val(&bytes, AddrMode::ZPGX, stepstring, false),
+            0x2F => self.get_val(&bytes, AddrMode::ABS, stepstring, false),
+            0x3F => self.get_val(&bytes, AddrMode::ABSX, stepstring, false),
+            0x3B => self.get_val(&bytes, AddrMode::ABSY, stepstring, false),
+            0x23 => self.get_val(&bytes, AddrMode::INDX, stepstring, false),
+            0x33 => self.get_val(&bytes, AddrMode::INDY, stepstring, false),
+            _ => unreachable!("IN IRLA_ROL BUT GOT BAD OP"),
+        };
+
+        //ROL shifts all bits left one position.
+        //The Carry is shifted into bit 0 and the original bit 7 is shifted into the Carry.
+        let new_c: bool = (val & 0x80) == 0x80;
+        let new_l = if self.cpu.SR.C { 1 } else { 0 };
+        val = val.rotate_left(1) & 0xFE;
+        val |= new_l;
+
+        self.cpu.SR.N = (val as i8) < 0;
+        self.cpu.SR.Z = val == 0;
+        self.cpu.SR.C = new_c;
+
+        match instr {
+            0x27 => {
+                let addr = self.calc_addr(&bytes, AddrMode::ZPG, false);
+                self.write(addr, &vec![val])
+            }
+            0x37 => {
+                let addr = self.calc_addr(&bytes, AddrMode::ZPGX, false);
+                self.write(addr, &vec![val])
+            }
+            0x2F => {
+                let addr = self.calc_addr(&bytes, AddrMode::ABS, false);
+                self.write(addr, &vec![val])
+            }
+            0x3F => {
+                let addr = self.calc_addr(&bytes, AddrMode::ABSX, false);
+                self.write(addr, &vec![val])
+            }
+            0x3B => {
+                let addr = self.calc_addr(&bytes, AddrMode::ABSY, false);
+                self.write(addr, &vec![val])
+            }
+            0x23 => {
+                let addr = self.calc_addr(&bytes, AddrMode::INDX, false);
+                self.write(addr, &vec![val])
+            }
+            0x33 => {
+                let addr = self.calc_addr(&bytes, AddrMode::INDY, false);
+                self.write(addr, &vec![val])
+            }
+            _ => unreachable!("IN IRLA_ROL BUT GOT BAD OPCOODE"),
+        };
+
+        self.cpu.ACC &= val;
+
+        self.cpu.SR.N = (self.cpu.ACC as i8) < 0;
+        self.cpu.SR.Z = self.cpu.ACC == 0;
+
+        self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+        self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+    }
+    pub fn ISRE(&mut self, instr: u8, bytes: Vec<u8>, stepstring: &mut String) {
+        stepstring.remove(stepstring.len() - 6);
+
+        //LSR oper + EOR oper
+        let mut val = match instr {
+            0x47 => self.get_val(&bytes, AddrMode::ZPG, stepstring, false),
+            0x57 => self.get_val(&bytes, AddrMode::ZPGX, stepstring, false),
+            0x4F => self.get_val(&bytes, AddrMode::ABS, stepstring, false),
+            0x5F => self.get_val(&bytes, AddrMode::ABSX, stepstring, false),
+            0x5B => self.get_val(&bytes, AddrMode::ABSY, stepstring, false),
+            0x43 => self.get_val(&bytes, AddrMode::INDX, stepstring, false),
+            0x53 => self.get_val(&bytes, AddrMode::INDY, stepstring, false),
+            _ => unreachable!("IN ISRE_LSR BUT GOT BAD OPCOODE"),
+        };
+
+        self.cpu.SR.C = (val & 0x1) == 1;
+        val = val >> 1;
+
+        self.cpu.SR.N = false;
+        self.cpu.SR.Z = val == 0;
+
+        match instr {
+            0x47 => {
+                let addr = self.calc_addr(&bytes, AddrMode::ZPG, false);
+                self.write(addr, &vec![val])
+            }
+            0x57 => {
+                let addr = self.calc_addr(&bytes, AddrMode::ZPGX, false);
+                self.write(addr, &vec![val])
+            }
+            0x4F => {
+                let addr = self.calc_addr(&bytes, AddrMode::ABS, false);
+                self.write(addr, &vec![val])
+            }
+            0x5F => {
+                let addr = self.calc_addr(&bytes, AddrMode::ABSX, false);
+                self.write(addr, &vec![val])
+            }
+            0x5B => {
+                let addr = self.calc_addr(&bytes, AddrMode::ABSY, false);
+                self.write(addr, &vec![val])
+            }
+            0x43 => {
+                let addr = self.calc_addr(&bytes, AddrMode::INDX, false);
+                self.write(addr, &vec![val])
+            }
+            0x53 => {
+                let addr = self.calc_addr(&bytes, AddrMode::INDY, false);
+                self.write(addr, &vec![val])
+            }
+            _ => unreachable!("IN ISRE_LSR BUT GOT BAD OPCOODE"),
+        };
+
+        //EOR
+        self.cpu.ACC ^= val;
+
+        self.cpu.SR.N = (self.cpu.ACC as i8) < 0;
+        self.cpu.SR.Z = self.cpu.ACC == 0;
+
+        self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
+        self.cycles += self.instr_data.instrs[&instr].cycles as u128;
+    }
+    pub fn IRRA(&mut self, instr: u8, bytes: Vec<u8>, stepstring: &mut String) {
+        stepstring.remove(stepstring.len() - 6);
+
+        //ROR oper + ADC oper
+        let mut val: u8 = match instr {
+            0x67 => self.get_val(&bytes, AddrMode::ZPG, stepstring, false),
+            0x77 => self.get_val(&bytes, AddrMode::ZPGX, stepstring, false),
+            0x6F => self.get_val(&bytes, AddrMode::ABS, stepstring, false),
+            0x7F => self.get_val(&bytes, AddrMode::ABSX, stepstring, false),
+            0x7B => self.get_val(&bytes, AddrMode::ABSY, stepstring, false),
+            0x63 => self.get_val(&bytes, AddrMode::INDX, stepstring, false),
+            0x73 => self.get_val(&bytes, AddrMode::INDY, stepstring, false),
+
+            _ => unreachable!("IN IRRA_ROR BUT GOT BAD OP"),
+        };
+
+        //ROR shifts all bits right one position.
+        //The Carry is shifted into bit 0 and the original bit 7 is shifted into the Carry.
+        let new_c: bool = (val & 0x1) == 0x1;
+        val = val.rotate_right(1);
+        let new_hi = if self.cpu.SR.C { 0x80 } else { 0 };
+        val &= 0x7F;
+        val |= new_hi;
+
+        self.cpu.SR.N = (val as i8) < 0;
+        self.cpu.SR.Z = val == 0;
+        self.cpu.SR.C = new_c;
+
+        match instr {
+            0x67 => {
+                let addr = self.calc_addr(&bytes, AddrMode::ZPG, false);
+                self.write(addr, &vec![val])
+            }
+            0x77 => {
+                let addr = self.calc_addr(&bytes, AddrMode::ZPGX, false);
+                self.write(addr, &vec![val])
+            }
+            0x6F => {
+                let addr = self.calc_addr(&bytes, AddrMode::ABS, false);
+                self.write(addr, &vec![val])
+            }
+            0x7F => {
+                let addr = self.calc_addr(&bytes, AddrMode::ABSX, false);
+                self.write(addr, &vec![val])
+            }
+            0x7B => {
+                let addr = self.calc_addr(&bytes, AddrMode::ABSY, false);
+                self.write(addr, &vec![val])
+            }
+            0x63 => {
+                let addr = self.calc_addr(&bytes, AddrMode::INDX, false);
+                self.write(addr, &vec![val])
+            }
+            0x73 => {
+                let addr = self.calc_addr(&bytes, AddrMode::INDY, false);
+                self.write(addr, &vec![val])
+            }
+            _ => unreachable!("IN IRRA_ROR BUT GOT BAD OPCOODE"),
+        };
+
+        //ADC
+
+        let old_acc = self.cpu.ACC;
+
+        //ACC = ACC + M + C
+        //NZCV
+        let c: u8 = if self.cpu.SR.C { 1 } else { 0 };
+
+        let res_one = (self.cpu.ACC as i8).overflowing_add(val as i8);
+        //println!("res one: {:02X} + {:02X} = {res_one:?}", self.cpu.ACC, val);
+        let res_two = res_one.0.overflowing_add(c as i8);
+        //println!("res two: {:02X} + {:02X} =  {res_two:?}", res_one.0, c);
+
+        //set the actual Result
+        self.cpu.ACC = res_two.0 as u8;
+
+        self.cpu.SR.N = (self.cpu.ACC as i8) < 0;
+        self.cpu.SR.Z = self.cpu.ACC == 0;
+        //NOTE: THIS METHOD REQUIRES NIGHTLY. FIND A WAY TO DO WITHOUT?
+        //self.cpu.SR.C = (self.cpu.ACC as u8) < (old_acc as u8);
+        self.cpu.SR.C = old_acc.carrying_add(val, self.cpu.SR.C).1;
+        self.cpu.SR.V = res_one.1 || res_two.1;
 
         self.cpu.PC += self.instr_data.instrs[&instr].len as u16;
         self.cycles += self.instr_data.instrs[&instr].cycles as u128;
