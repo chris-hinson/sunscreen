@@ -1037,7 +1037,7 @@ impl crate::NES {
         //ROL shifts all bits left one position.
         //The Carry is shifted into bit 0 and the original bit 7 is shifted into the Carry.
         let new_c: bool = (val & 0x80) == 0x80;
-        val = val.rotate_left(1);
+        val = val.rotate_left(1) & 0xFE;
         let new_l = if self.cpu.SR.C { 1 } else { 0 };
         val |= new_l;
 

@@ -1039,11 +1039,7 @@ impl NES {
     pub fn read(&mut self, addr: u16, length: usize) -> Vec<u8> {
         for a in addr as usize..=(addr as usize + length) {
             if self.watchpoints.contains(&(a as usize)) {
-                //self.running = false;
-                /*self.channels
-                .log_channel
-                .send("HALTING BC WE HIT A MEMORY WATCHPOINT".to_string())
-                .unwrap();*/
+                //TODO: need to halt here
             }
         }
 
@@ -1055,7 +1051,6 @@ impl NES {
 
                 return self.wram.contents[final_addr as usize..final_addr as usize + length]
                     .into();
-                //return 0;
             }
             //PPU control regs a PM at gs (8 bytes) + a fuckton of mirrors
             0x2000..=0x3FFF => {
@@ -1064,8 +1059,8 @@ impl NES {
             }
             //registers (apu and io)
             0x4000..=0x4017 => {
-                //return [].into();
-                unimplemented!("tried to read apu/io regs")
+                return vec![0; 1];
+                //unimplemented!("tried to read apu/io regs")
             }
             //cart expansion
             0x4018..=0x5FFF => {
@@ -1084,11 +1079,7 @@ impl NES {
     pub fn write(&mut self, addr: u16, bytes: &Vec<u8>) {
         for a in addr as usize..=(addr as usize + bytes.len()) {
             if self.watchpoints.contains(&(a as usize)) {
-                //self.running = false;
-                /*self.channels
-                .log_channel
-                .send("HALTING BC WE HIT A MEMORY WATCHPOINT".to_string())
-                .unwrap();*/
+                //TODO: need to halt here
             }
         }
 
@@ -1100,11 +1091,6 @@ impl NES {
                 for (i, b) in bytes.iter().enumerate() {
                     //write value into ram
                     self.wram.contents[(base_addr as usize) + i] = *b;
-                    //make sure we also send this value to the frontend
-                    /*self.channels
-                    .wram_channel
-                    .send((((base_addr as usize) + i), *b))
-                    .unwrap();*/
                 }
             }
             //PPU control regs (8 bytes) + a fuckton of mirrors
@@ -1113,7 +1099,7 @@ impl NES {
             }
             //registers (apu and io)
             0x4000..=0x4017 => {
-                unimplemented!("tried to wrote to apu/io regs")
+                //unimplemented!("tried to wrote to apu/io regs")
             }
             //cart expansion
             0x4018..=0x5FFF => {
