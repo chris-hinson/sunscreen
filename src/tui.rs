@@ -108,7 +108,7 @@ pub fn setup_tui(system: &mut crate::nes::NES) -> cursive::Cursive {
     //add panic key
     cur.add_global_callback('p', |_cur| panic!("lol"));
 
-    return cur;
+    cur
 }
 
 //runner function

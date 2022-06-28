@@ -63,37 +63,37 @@ pub struct UltraHexaView {
 impl UltraHexaView {
     //pub fn new(num_lines: usize) -> Self {
     pub fn new() -> Self {
-        return UltraHexaView {
+        UltraHexaView {
             data: Vec::new(),
             base_line: 0,
             index: 0,
             num_lines: 0,
             watchpoints: Vec::new(),
-        };
+        }
     }
 
     pub fn new_from_iter<'a>(d: impl IntoIterator<Item = &'a u8>) -> Self {
-        return UltraHexaView {
+        UltraHexaView {
             data: d.into_iter().copied().collect(),
             base_line: 0,
             index: 0,
             num_lines: 0,
             watchpoints: Vec::new(),
-        };
+        }
     }
     pub fn new_from_iter_with_watch<'a>(
         d: impl IntoIterator<Item = &'a u8>,
         watchpoints: impl IntoIterator<Item = &'a usize>,
     ) -> Self {
-        return UltraHexaView {
+        UltraHexaView {
             data: d.into_iter().copied().collect(),
             base_line: 0,
             index: 0,
             num_lines: 0,
             watchpoints: watchpoints.into_iter().copied().collect(),
-        };
+        }
     }
-    pub fn set_data(&mut self, dat: &mut Vec<u8>) {
+    pub fn set_data(&mut self, dat: &mut [u8]) {
         self.data = dat.to_vec();
     }
     pub fn add_watch(&mut self, new_points: &mut Vec<usize>) {
@@ -133,7 +133,7 @@ impl UltraHexaView {
         }
 
         //tell cursive that we have consumed this event
-        return EventResult::Consumed(None);
+        EventResult::Consumed(None)
     }
     fn go_up(&mut self) -> EventResult {
         //if we're already at the very bottom, do not consume this event so we can go to next view
@@ -152,7 +152,7 @@ impl UltraHexaView {
             self.base_line = self.base_line.saturating_sub(1);
         }
 
-        return EventResult::Consumed(None);
+        EventResult::Consumed(None)
     }
     fn go_right(&mut self) -> EventResult {
         if self.index % 16 == 15 {
@@ -162,7 +162,7 @@ impl UltraHexaView {
         if self.index < self.data.len() - 1 {
             self.index += 1
         }
-        return EventResult::Consumed(None);
+        EventResult::Consumed(None)
     }
     fn go_left(&mut self) -> EventResult {
         if self.index % 16 == 0 {
@@ -170,7 +170,7 @@ impl UltraHexaView {
         }
 
         self.index = self.index.saturating_sub(1);
-        return EventResult::Consumed(None);
+        EventResult::Consumed(None)
     }
 }
 
@@ -228,20 +228,20 @@ impl View for UltraHexaView {
     fn on_event(&mut self, event: Event) -> EventResult {
         match event {
             Event::Key(k) => match k {
-                Key::Left => return self.go_left(),
-                Key::Right => return self.go_right(),
-                Key::Up => return self.go_up(),
-                Key::Down => return self.go_down(),
-                _ => return EventResult::Ignored,
+                Key::Left => self.go_left(),
+                Key::Right => self.go_right(),
+                Key::Up => self.go_up(),
+                Key::Down => self.go_down(),
+                _ => EventResult::Ignored,
             },
             //ignore any events that are not up/down/left/right
             //fuck u mouse users
-            _ => return EventResult::Ignored,
+            _ => EventResult::Ignored,
         }
     }
 
     fn take_focus(&mut self, _: Direction) -> Result<EventResult, CannotFocus> {
-        return Ok(EventResult::consumed());
+        Ok(EventResult::consumed())
     }
 }
 

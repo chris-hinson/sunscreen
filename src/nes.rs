@@ -7,6 +7,7 @@ use std::fmt::Write;
 
 //TODO: remove this allow once we finish implementing all addressing modes
 #[allow(dead_code)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum AddrMode {
     ACC,
     ABS,
@@ -23,6 +24,7 @@ pub enum AddrMode {
 }
 
 #[derive(Clone)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct NES {
     //components
     pub cpu: Cpu,
@@ -43,6 +45,7 @@ pub struct NES {
 }
 
 #[allow(dead_code)]
+#[allow(clippy::upper_case_acronyms)]
 impl NES {
     pub fn new(cpu: Cpu, cart: Cart, wram: Wram) -> NES {
         NES {
@@ -141,12 +144,9 @@ impl NES {
     zpg,Y	zeropage, Y-indexed	OPC $LL,Y	operand is zeropage address; effective address is address incremented by Y without carry **
     */
 
-    pub fn calc_addr(&mut self, bytes: &Vec<u8>, mode: AddrMode, penalty: bool) -> u16 {
+    pub fn calc_addr(&mut self, bytes: &[u8], mode: AddrMode, penalty: bool) -> u16 {
         return match mode {
-            AddrMode::ABS => {
-                let addr = (bytes[2] as u16) << 8 | bytes[1] as u16;
-                addr
-            }
+            AddrMode::ABS => (bytes[2] as u16) << 8 | bytes[1] as u16,
             AddrMode::ABSX => {
                 let base_addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
                 let addr = base_addr.wrapping_add(self.cpu.X as u16);
@@ -223,10 +223,7 @@ impl NES {
 
                 target
             }
-            AddrMode::ZPG => {
-                let addr = bytes[1] as u16;
-                addr
-            }
+            AddrMode::ZPG => bytes[1] as u16,
             AddrMode::ZPGX => {
                 //let base_addr = bytes[1] as u16 | (bytes[2] as u16) << 8;
                 let base_addr = bytes[1] as u16;
@@ -262,7 +259,7 @@ impl NES {
     //takes our stepstring buffer as an arg so it can write debug info into it
     pub fn get_val(
         &mut self,
-        bytes: &Vec<u8>,
+        bytes: &[u8],
         mode: AddrMode,
         stepstring: &mut String,
         penalty: bool,
@@ -391,31 +388,22 @@ impl NES {
         };
     }
 
-    pub fn get_val_silent(
-        &mut self,
-        bytes: &Vec<u8>,
-        mode: AddrMode,
-        stepstring: &mut String,
-        penalty: bool,
-    ) -> u8 {
+    pub fn get_val_silent(&mut self, bytes: &[u8], mode: AddrMode, penalty: bool) -> u8 {
         //NOTE: this is split out as a match case because we need to print different stuff based on
         // addr mode, otherwise we could just always calc addr and read a byte
-        return match mode {
+        match mode {
             AddrMode::ACC => self.cpu.ACC,
             AddrMode::ABS => {
                 let addr = self.calc_addr(bytes, AddrMode::ABS, penalty);
-                let val = self.read(addr, 1)[0];
-                val
+                self.read(addr, 1)[0]
             }
             AddrMode::ABSX => {
                 let addr = self.calc_addr(bytes, AddrMode::ABSX, penalty);
-                let val = self.read(addr, 1)[0];
-                val
+                self.read(addr, 1)[0]
             }
             AddrMode::ABSY => {
                 let addr = self.calc_addr(bytes, AddrMode::ABSY, penalty);
-                let val = self.read(addr, 1)[0];
-                val
+                self.read(addr, 1)[0]
             }
             AddrMode::IMM => bytes[1],
             AddrMode::IND => {
@@ -426,15 +414,11 @@ impl NES {
                 //this is our effective(final) address
                 let addr = self.calc_addr(bytes, AddrMode::INDX, penalty);
                 //we read from this address to get our value
-                let val = self.read(addr, 1)[0];
-
-                val
+                self.read(addr, 1)[0]
             }
             AddrMode::INDY => {
                 let addr = self.calc_addr(bytes, AddrMode::INDY, penalty);
-                let val = self.read(addr, 1)[0];
-
-                val
+                self.read(addr, 1)[0]
             }
             AddrMode::REL => {
                 let addr = self.calc_addr(bytes, AddrMode::REL, penalty);
@@ -442,22 +426,17 @@ impl NES {
             }
             AddrMode::ZPG => {
                 let addr = self.calc_addr(bytes, AddrMode::ZPG, penalty);
-                let val = self.read(addr, 1)[0];
-                val
+                self.read(addr, 1)[0]
             }
             AddrMode::ZPGX => {
                 let addr = self.calc_addr(bytes, AddrMode::ZPGX, penalty);
-                let val = self.read(addr, 1)[0];
-
-                val
+                self.read(addr, 1)[0]
             }
             AddrMode::ZPGY => {
                 let addr = self.calc_addr(bytes, AddrMode::ZPGY, penalty);
-                let val = self.read(addr, 1)[0];
-
-                val
+                self.read(addr, 1)[0]
             }
-        };
+        }
     }
 
     //stepping our system can either return an Ok(log string) or an Err(step_error)
@@ -1017,7 +996,7 @@ impl NES {
         )
         .unwrap();
 
-        return Ok(stepstring);
+        Ok(stepstring)
     }
 
     //memory operations
@@ -1049,8 +1028,7 @@ impl NES {
                 //mod by 2048 since we have 3 mirrors
                 let final_addr = addr % 2048;
 
-                return self.wram.contents[final_addr as usize..final_addr as usize + length]
-                    .into();
+                self.wram.contents[final_addr as usize..final_addr as usize + length].into()
             }
             //PPU control regs a PM at gs (8 bytes) + a fuckton of mirrors
             0x2000..=0x3FFF => {
@@ -1073,7 +1051,7 @@ impl NES {
                 unimplemented!("tried to read cart SRAM")
             }
             //PRG-ROM (32K)
-            0x8000..=0xFFFF => self.cart.read(addr, length).into(),
+            0x8000..=0xFFFF => self.cart.read(addr, length),
         }
     }
     pub fn write(&mut self, addr: u16, bytes: &Vec<u8>) {
@@ -1121,7 +1099,8 @@ pub fn print_bytes(bytes: &Vec<u8>) -> String {
     let mut ret_str = String::new();
 
     for b in bytes {
-        ret_str.push_str(&format!("{:02X} ", b));
+        //ret_str.push_str(&format!("{:02X} ", b));
+        write!(ret_str, "{:02X} ", b).unwrap();
     }
-    return ret_str;
+    ret_str
 }

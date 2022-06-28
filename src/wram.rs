@@ -5,8 +5,8 @@ pub struct Wram {
 
 impl Wram {
     pub fn new() -> Self {
-        return Wram {
+        Wram {
             contents: [0; 2048],
-        };
+        }
     }
 }

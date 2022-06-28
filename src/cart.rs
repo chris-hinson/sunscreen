@@ -12,7 +12,7 @@ impl Cart {
         for (i, v) in bank0.iter().enumerate() {
             init_contents[i] = *v;
         }
-        return Cart { prg_rom: bank0 };
+        Cart { prg_rom: bank0 }
     }
 
     //TODO: these will vary WILDLY based upon the mapper right now we're just hardcoding it for nestest
@@ -21,7 +21,7 @@ impl Cart {
 
         //two mirrors of 16KB each
         let eff_addr = addr % 16384;
-        return self.prg_rom[eff_addr as usize..eff_addr as usize + length].into();
+        self.prg_rom[eff_addr as usize..eff_addr as usize + length].into()
     }
 
     pub fn write(&mut self, addr: u16, byte: u8) {

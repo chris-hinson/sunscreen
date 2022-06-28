@@ -24,7 +24,7 @@ fn main() {
     let good_log = "./test-roms/nestest-redux/nestest_cpu_relined.log";
     let log_file = fs::read_to_string(good_log).expect("log file not found");
     let mut log = log_file
-        .split("\n")
+        .split('\n')
         .map(|s| s.to_owned())
         .collect::<Vec<String>>();
     //we dont need to check initial state

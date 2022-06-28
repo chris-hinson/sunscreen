@@ -89,7 +89,7 @@ impl SR {
         self.D = (val & 0b0000_1000) >> 3 == 0x1;
         self.I = (val & 0b0000_0100) >> 2 == 0x1;
         self.Z = (val & 0b0000_0010) >> 1 == 0x1;
-        self.C = (val & 0b0000_0001) >> 0 == 0x1;
+        self.C = (val & 0b0000_0001) == 0x1;
     }
     fn new() -> Self {
         SR {
@@ -119,7 +119,7 @@ impl Cpu {
         };
 
         our_cpu.SR.encode(0b0010_0100);
-        return our_cpu;
+        our_cpu
     }
 
     //formatter function for our tui.
@@ -162,7 +162,7 @@ impl Cpu {
             self.SR.C as i32,
         ));
 
-        return ret_vec;
+        ret_vec
     }
 
     pub fn push(&mut self, wram: &mut crate::wram::Wram, val: u8) {

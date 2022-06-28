@@ -14,11 +14,11 @@ pub struct InstrData {
 }
 impl InstrData {
     pub fn new(name: &str, len: usize, cycles: usize) -> Self {
-        return InstrData {
+        InstrData {
             name: name.to_string(),
             len,
             cycles,
-        };
+        }
     }
 }
 
@@ -920,7 +920,7 @@ impl crate::NES {
         };
 
         self.cpu.SR.C = (val & 0x1) == 1;
-        val = val >> 1;
+        val >>= 1;
 
         self.cpu.SR.N = false;
         self.cpu.SR.Z = val == 0;
@@ -1458,7 +1458,7 @@ impl crate::NES {
             _ => unreachable!("IN IDCP_INC, BUT GOT BAD OP"),
         };
 
-        let mut old_val = self.read(addr, 1)[0];
+        let old_val = self.read(addr, 1)[0];
 
         let val = old_val.wrapping_sub(1);
 
@@ -1558,13 +1558,13 @@ impl crate::NES {
 
         //ASL
         let mut val = match instr {
-            0x07 => self.get_val_silent(&bytes, AddrMode::ZPG, stepstring, false),
-            0x17 => self.get_val_silent(&bytes, AddrMode::ZPGX, stepstring, false),
-            0x0F => self.get_val_silent(&bytes, AddrMode::ABS, stepstring, false),
-            0x1F => self.get_val_silent(&bytes, AddrMode::ABSX, stepstring, false),
-            0x1B => self.get_val_silent(&bytes, AddrMode::ABSY, stepstring, false),
-            0x03 => self.get_val_silent(&bytes, AddrMode::INDX, stepstring, false),
-            0x13 => self.get_val_silent(&bytes, AddrMode::INDY, stepstring, false),
+            0x07 => self.get_val_silent(&bytes, AddrMode::ZPG, false),
+            0x17 => self.get_val_silent(&bytes, AddrMode::ZPGX, false),
+            0x0F => self.get_val_silent(&bytes, AddrMode::ABS, false),
+            0x1F => self.get_val_silent(&bytes, AddrMode::ABSX, false),
+            0x1B => self.get_val_silent(&bytes, AddrMode::ABSY, false),
+            0x03 => self.get_val_silent(&bytes, AddrMode::INDX, false),
+            0x13 => self.get_val_silent(&bytes, AddrMode::INDY, false),
             _ => unreachable!("IN ISLO_ASL BUT GOT BAD OPCOODE"),
         };
 
@@ -1710,7 +1710,7 @@ impl crate::NES {
         };
 
         self.cpu.SR.C = (val & 0x1) == 1;
-        val = val >> 1;
+        val >>= 1;
 
         self.cpu.SR.N = false;
         self.cpu.SR.Z = val == 0;
