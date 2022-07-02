@@ -8,12 +8,14 @@ mod cpu;
 mod instr;
 mod my_views;
 mod nes;
+mod ppu;
 mod tui;
 mod wram;
 
 use cart::Cart;
 use cpu::Cpu;
 use nes::NES;
+use ppu::Ppu;
 use wram::Wram;
 
 //use pretty_assertions::Comparison;
@@ -38,15 +40,17 @@ fn main() {
 
     //make our cpu :D
     let mut cpu = Cpu::new();
+    //set PC to 0xc000
+    cpu.PC = 0xc000;
     //make our wram
     let wram = Wram::new();
     //make our "cart"
     let cart = Cart::new(rom_file[0x10..=0x400f].to_vec());
-    //set PC to 0xc000
-    cpu.PC = 0xc000;
+    //make our ppu
+    let ppu = Ppu::new();
 
     //make our full system and add a breakpoint at the test rom entry address
-    let mut nes = NES::new(cpu, cart, wram);
+    let mut nes = NES::new(cpu, cart, wram, ppu);
     nes.add_breakpoint(0xC000);
     //nes.add_breakpoint(0xC689);
     //nes.add_breakpoint(0xC6C8);

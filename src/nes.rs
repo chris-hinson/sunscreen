@@ -1,6 +1,7 @@
 use crate::cart::Cart;
 use crate::cpu::Cpu;
 use crate::instr::Instr;
+use crate::ppu::Ppu;
 use crate::wram::Wram;
 
 use std::fmt::Write;
@@ -32,8 +33,8 @@ pub struct NES {
     pub instr_data: Instr,
     pub wram: Wram,
     //apu
-    //ppu
-    //VRAM??
+    pub ppu: Ppu,
+    pub vram: [u8; 256],
 
     //data about the system
     pub cycles: u128,
@@ -47,11 +48,13 @@ pub struct NES {
 #[allow(dead_code)]
 #[allow(clippy::upper_case_acronyms)]
 impl NES {
-    pub fn new(cpu: Cpu, cart: Cart, wram: Wram) -> NES {
+    pub fn new(cpu: Cpu, cart: Cart, wram: Wram, ppu: Ppu) -> NES {
         NES {
             cpu,
             cart,
             wram,
+            ppu,
+            vram: [0; 256],
             cycles: 7, //from intial reset vector
             instr_data: Instr::new(),
             breakpoints: Vec::new(),
@@ -1001,6 +1004,7 @@ impl NES {
 
     //memory operations
 
+    //TODO: this is our cpu memory map. ppu has its own memory map
     /*CPU Memory Map (16bit buswidth, 0-FFFFh)
 
     0000h-07FFh   Internal 2K Work RAM (mirrored to 800h-1FFFh)
