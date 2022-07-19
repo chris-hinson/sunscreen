@@ -3,6 +3,7 @@
 #![feature(mixed_integer_ops)]
 use std::fs;
 
+mod bus;
 mod cart;
 mod cpu;
 mod instr;
@@ -10,6 +11,7 @@ mod my_views;
 mod nes;
 mod ppu;
 mod tui;
+mod vram;
 mod wram;
 
 use cart::Cart;
