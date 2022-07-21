@@ -64,7 +64,7 @@ impl NES {
                 unimplemented!("tried to read cart SRAM")
             }
             //PRG-ROM (32K)
-            0x8000..=0xFFFF => self.cart.read(addr, length),
+            0x8000..=0xFFFF => self.ppu.cart.read(addr, length),
         }
     }
     pub fn write(&mut self, addr: u16, bytes: &Vec<u8>) {
@@ -132,15 +132,61 @@ $2BC0 	$40 	Attribute Table 2        -cart?
 $2C00 	$3C0 	Name Table 3             -cart?
 $2FC0 	$40 	Attribute Table 3        -cart?
 $3000 	$F00 	Mirror of 2000h-2EFFh
-$3F00 	$10 	BG Palette               -vram
-$3F10 	$10 	Sprite Palette           -vram
-$3F20 	$E0 	Mirror of 3F00h-3F1Fh */
+$3F00 	$10 	BG Palette               -internal?
+$3F10 	$10 	Sprite Palette           -internal
+$3F20 	$E0 	Mirror of 3F00h-3F1Fh    -internal
+*/
+//VRAM is 2kb, bound to $2000-2FFF (can apparently be rerouted??)
 
 impl Ppu {
-    pub fn read(&mut self, addr: u16, len: usize, cart: &Cart, vram: &Vram) -> Vec<u8> {
-        unimplemented!("NO READING FROM PPU YET!")
+    pub fn read(&mut self, addr: u16, len: usize) -> Vec<u8> {
+        //unimplemented!("NO READING FROM PPU YET!");
+        match addr {
+            0x0000..=0x1FFF => {
+                //goes to cart. mapping nightmares ensue
+                panic!("ppu tried to read from cart")
+            }
+            0x2000..=0x2FFF => {
+                //VRAM!
+                let final_addr = addr - 0x2000;
+                return self.vram.contents
+                    [final_addr as usize..(final_addr as usize + len) as usize]
+                    .into();
+            }
+            0x3000..=0x3EFF => {
+                //mirror of VRAM
+                let final_addr = addr - 0x3000;
+                return self.vram.contents
+                    [final_addr as usize..(final_addr as usize + len) as usize]
+                    .into();
+            }
+            0x3F00..=0x3FFF => {
+                //internal palette control
+                panic!("ppu tried to read from internal paletter control")
+            }
+            _ => panic!("reading from bad ppu addr"),
+        }
+
+        //return vec![0];
     }
-    pub fn write(&mut self, addr: u16, bytes: &Vec<u8>, cart: &mut Cart, vram: &mut Vram) {
-        unimplemented!("NO WRITING FROM PPU YET!")
+    pub fn write(&mut self, addr: u16, bytes: &Vec<u8>) {
+        //unimplemented!("NO WRITING FROM PPU YET!")
+        match addr {
+            0x0000..=0x1FFF => {
+                //goes to cart. mapping nightmares ensue
+                panic!("ppu tried to write to cart")
+            }
+            0x2000..=0x2FFF => {
+                //VRAM!
+            }
+            0x3000..=0x3EFF => {
+                //mirror of VRAM
+            }
+            0x3F00..=0x3FFF => {
+                //internal palette control
+                panic!("ppu tried to write to internal paletter control")
+            }
+            _ => panic!("reading from bad ppu addr"),
+        }
     }
 }

@@ -1,4 +1,3 @@
-use crate::cart::Cart;
 use crate::cpu::Cpu;
 use crate::instr::Instr;
 use crate::ppu::Ppu;
@@ -29,12 +28,11 @@ pub enum AddrMode {
 pub struct NES {
     //components
     pub cpu: Cpu,
-    pub cart: Cart,
+    //pub cart: Cart,
     pub instr_data: Instr,
     pub wram: Wram,
     //apu
     pub ppu: Ppu,
-    pub vram: [u8; 256],
 
     //data about the system
     pub cycles: u128,
@@ -48,13 +46,12 @@ pub struct NES {
 #[allow(dead_code)]
 #[allow(clippy::upper_case_acronyms)]
 impl NES {
-    pub fn new(cpu: Cpu, cart: Cart, wram: Wram, ppu: Ppu) -> NES {
+    pub fn new(cpu: Cpu, wram: Wram, ppu: Ppu) -> NES {
         NES {
             cpu,
-            cart,
+            //cart,
             wram,
             ppu,
-            vram: [0; 256],
             cycles: 7, //from intial reset vector
             instr_data: Instr::new(),
             breakpoints: Vec::new(),

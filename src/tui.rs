@@ -63,7 +63,7 @@ pub fn setup_tui(system: &mut crate::nes::NES) -> cursive::Cursive {
     let rom_view = ResizedView::new(
         SizeConstraint::Full,
         SizeConstraint::Fixed(15),
-        UltraHexaView::new_from_iter(&system.cart.prg_rom).with_name("rom"),
+        UltraHexaView::new_from_iter(&system.ppu.cart.prg_rom).with_name("rom"),
     );
     /*let chr_view = ResizedView::new(
         SizeConstraint::Full,
@@ -127,7 +127,7 @@ pub fn run(siv: &mut cursive::Cursive, new_logs: &mut Vec<String>, system: &mut 
     });
     //rom
     siv.call_on_name("rom", |view: &mut UltraHexaView| {
-        view.set_data(&mut system.cart.prg_rom);
+        view.set_data(&mut system.ppu.cart.prg_rom);
     });
     //apu
     //ppu

@@ -1,3 +1,6 @@
+use crate::cart::Cart;
+use crate::vram::Vram;
+
 #[allow(dead_code)]
 #[derive(Clone)]
 #[allow(non_snake_case)]
@@ -11,6 +14,9 @@ pub struct Ppu {
     //Control Registers - THESE ARE MEMORY MAPPED IN CPU'S MEM SPACE
     pub regs: PPUREGS,
 
+    pub vram: Vram,
+    pub cart: Cart,
+
     //some metadata about where we are in the rendering process
     pub cur_dot: usize,
     pub cur_line: usize,
@@ -23,11 +29,12 @@ pub struct Ppu {
 }
 
 impl Ppu {
-    pub fn new() -> Self {
+    pub fn new(cart: Cart) -> Self {
         Ppu {
             OAM: [0; 256],
             regs: PPUREGS::new(),
-
+            vram: Vram::new(),
+            cart,
             cur_dot: 0,
             cur_line: 0,
             cycles: 0,
@@ -236,11 +243,12 @@ impl Ppu {
                 0 => {}
                 //data fetch AND next line sprite eval
                 1..=256 => {
-                    /*
-                    1.Nametable byte
-                    2.Attribute table byte
-                    3.Pattern table tile low
-                    4.Pattern table tile high (+8 bytes from pattern table tile low) */
+                    //1.Nametable byte
+                    //fetch from $2000
+                    self.read(0x2000, 1);
+                    //2.Attribute table byte
+                    //3.Pattern table tile low
+                    //4.Pattern table tile high (+8 bytes from pattern table tile low)
                 }
                 //NEXT LINE sprite fetch
                 257..=320 => {}

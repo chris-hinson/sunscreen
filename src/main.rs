@@ -3,6 +3,7 @@
 #![feature(mixed_integer_ops)]
 use std::fs;
 
+mod app;
 mod bus;
 mod cart;
 mod cpu;
@@ -49,10 +50,10 @@ fn main() {
     //make our "cart"
     let cart = Cart::new(rom_file[0x10..=0x400f].to_vec());
     //make our ppu
-    let ppu = Ppu::new();
+    let ppu = Ppu::new(cart);
 
     //make our full system and add a breakpoint at the test rom entry address
-    let mut nes = NES::new(cpu, cart, wram, ppu);
+    let mut nes = NES::new(cpu, wram, ppu);
     nes.add_breakpoint(0xC000);
     //nes.add_breakpoint(0xC689);
     //nes.add_breakpoint(0xC6C8);
@@ -64,5 +65,11 @@ fn main() {
         .spawn(move || nes.run(log.clone()))
         .unwrap();
 
+    let window_handle = thread::Builder::new()
+        .name("app".to_string())
+        .spawn(move || crate::app::run())
+        .unwrap();
+
     runner_handle.join().expect("runner thread panicked");
+    window_handle.join().expect("app window panicked?").unwrap();
 }
