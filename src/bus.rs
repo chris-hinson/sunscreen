@@ -68,11 +68,11 @@ impl NES {
         }
     }
     pub fn write(&mut self, addr: u16, bytes: &Vec<u8>) {
-        for a in addr as usize..=(addr as usize + bytes.len()) {
+        /*for a in addr as usize..=(addr as usize + bytes.len()) {
             if self.watchpoints.contains(&(a as usize)) {
                 //TODO: need to halt here
             }
-        }
+        }*/
 
         match addr {
             //WRAM(2kb) + 3 mirrors
@@ -102,7 +102,7 @@ impl NES {
             }
             //registers (apu and io)
             0x4000..=0x4017 => {
-                //unimplemented!("tried to wrote to apu/io regs")
+                unimplemented!("tried to wrote to apu/io regs")
             }
             //cart expansion
             0x4018..=0x5FFF => {
@@ -138,6 +138,15 @@ $3F20 	$E0 	Mirror of 3F00h-3F1Fh    -internal
 */
 //VRAM is 2kb, bound to $2000-2FFF (can apparently be rerouted??)
 
+//CHRIS THE CARTRIDGE CONTROLS WHAT HARDWARE EVERYTHING GETS ROUTED TO
+//"The mappings above are the fixed addresses from which the PPU uses to fetch data during rendering.
+//The actual device that the PPU fetches data from, however, may be configured by the cartridge. "
+/*
+$0000-1FFF is normally mapped by the cartridge to a CHR-ROM or CHR-RAM, often with a bank switching mechanism.
+$2000-2FFF is normally mapped to the 2kB NES internal VRAM, providing 2 nametables with a mirroring configuration controlled by the cartridge, but it can be partly or fully remapped to RAM on the cartridge, allowing up to 4 simultaneous nametables.
+$3000-3EFF is usually a mirror of the 2kB region from $2000-2EFF. The PPU does not render from this address range, so this space has negligible utility.
+$3F00-3FFF is not configurable, always mapped to the internal palette control. */
+
 impl Ppu {
     pub fn read(&mut self, addr: u16, len: usize) -> Vec<u8> {
         //unimplemented!("NO READING FROM PPU YET!");
@@ -147,7 +156,9 @@ impl Ppu {
                 panic!("ppu tried to read from cart")
             }
             0x2000..=0x2FFF => {
-                //VRAM!
+                //VRAM! 2k
+
+                //because addresses in vram are simply the addresses in the ppu space - 0x2000
                 let final_addr = addr - 0x2000;
                 return self.vram.contents
                     [final_addr as usize..(final_addr as usize + len) as usize]
@@ -178,13 +189,21 @@ impl Ppu {
             }
             0x2000..=0x2FFF => {
                 //VRAM!
+                let final_addr = addr - 0x2000;
+                for (i, byte) in bytes.iter().enumerate() {
+                    self.vram.contents[final_addr as usize + i] = *byte;
+                }
             }
             0x3000..=0x3EFF => {
-                //mirror of VRAM
+                //mirror of VRAM (notice youre missing the last few bytes lol)
+                let final_addr = addr - 0x3000;
+                for (i, byte) in bytes.iter().enumerate() {
+                    self.vram.contents[final_addr as usize + i] = *byte;
+                }
             }
             0x3F00..=0x3FFF => {
                 //internal palette control
-                panic!("ppu tried to write to internal paletter control")
+                panic!("ppu tried to write to internal palette control")
             }
             _ => panic!("reading from bad ppu addr"),
         }
