@@ -64,7 +64,7 @@ impl NES {
                 unimplemented!("tried to read cart SRAM")
             }
             //PRG-ROM (32K)
-            0x8000..=0xFFFF => self.ppu.cart.read(addr, length),
+            0x8000..=0xFFFF => self.ppu.cart.cpu_read(addr, length),
         }
     }
     pub fn write(&mut self, addr: u16, bytes: &Vec<u8>) {
@@ -153,7 +153,8 @@ impl Ppu {
         match addr {
             0x0000..=0x1FFF => {
                 //goes to cart. mapping nightmares ensue
-                panic!("ppu tried to read from cart")
+                //panic!("ppu tried to read from cart")
+                return self.cart.ppu_read(addr, len);
             }
             0x2000..=0x2FFF => {
                 //VRAM! 2k
@@ -185,7 +186,10 @@ impl Ppu {
         match addr {
             0x0000..=0x1FFF => {
                 //goes to cart. mapping nightmares ensue
-                panic!("ppu tried to write to cart")
+                //panic!("ppu tried to write to cart")
+                for byte in bytes {
+                    self.cart.ppu_write(addr, *byte);
+                }
             }
             0x2000..=0x2FFF => {
                 //VRAM!

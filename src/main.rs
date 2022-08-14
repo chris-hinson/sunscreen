@@ -1,7 +1,10 @@
 //need this for carrying add function in ADC
 #![feature(bigint_helper_methods)]
 #![feature(mixed_integer_ops)]
-use std::fs;
+use std::{
+    fs,
+    sync::mpsc::{channel, Receiver, Sender},
+};
 
 mod app;
 mod bus;
@@ -42,23 +45,27 @@ fn main() {
     let rom_file = fs::read(filename).expect("file not found!");
 
     //make our cpu :D
-    let mut cpu = Cpu::new();
+    let cpu = Cpu::new();
     //set PC to 0xc000
-    cpu.PC = 0xc000;
+    //TODO: THIS IS ONLY FOR NESTEST HEADLESS MODE. USE THE RESET VECTOR!!
+
     //make our wram
     let wram = Wram::new();
     //make our "cart"
     let cart = Cart::new(rom_file[0x10..=0x400f].to_vec());
+    //ppu and app need a channel to send frame data
+    let (tx, rx): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = channel();
     //make our ppu
-    let ppu = Ppu::new(cart);
+    let ppu = Ppu::new(cart, tx);
 
     //make our full system and add a breakpoint at the test rom entry address
     let mut nes = NES::new(cpu, wram, ppu);
-    nes.add_breakpoint(0xC000);
-
+    let reset_addr = nes.ppu.cart.cpu_read(0xFFFC, 2);
+    nes.cpu.PC = reset_addr[0] as u16 | (reset_addr[1] as u16) << 8;
+    //panic!("reset addr is {:04X}", nes.cpu.PC);
+    nes.add_breakpoint(nes.cpu.PC as usize);
     //nes.add_breakpoint(0xC689);
     //nes.add_breakpoint(0xC6C8);
-
     //nes.add_breakpoint(0xC5FD);
 
     let runner_handle = thread::Builder::new()
@@ -68,7 +75,7 @@ fn main() {
 
     let window_handle = thread::Builder::new()
         .name("app".to_string())
-        .spawn(move || crate::app::run())
+        .spawn(move || crate::app::run(rx))
         .unwrap();
 
     runner_handle.join().expect("runner thread panicked");

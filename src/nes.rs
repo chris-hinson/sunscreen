@@ -80,19 +80,16 @@ impl NES {
         let mut pending_logs: Vec<String> = Vec::new();
         //endless running loop
         loop {
-            let good_line = match good_log.pop() {
+            /*let good_line = match good_log.pop() {
                 Some(v) => v,
                 None => panic!("log file is empty???"),
-            };
+            };*/
+            let cur_instr = self.read(self.cpu.PC, 1)[0];
             match self.step() {
                 //Ok means that we didnt encounter anything out of the ordinary in our step
                 Ok(our_line) => {
-                    //file.write("{our_line}");
-                    //write!(file, "{our_line}");
-                    std::fs::write("./err", our_line.clone())
-                        .expect("please just shut the fuck up");
                     //always push the line we just got back
-                    if good_line.ne(&our_line) {
+                    /*if good_line.ne(&our_line) {
                         //panic!("mismatch");
                         pending_logs.push(format!(
                             "halting on line mismatch, PC = {:04X}",
@@ -105,7 +102,9 @@ impl NES {
                         halt = true;
                     } else {
                         pending_logs.push(our_line.clone());
-                    }
+                    }*/
+
+                    pending_logs.push(our_line.clone());
                 }
                 //append our error and halt
                 Err(error_string) => {
@@ -114,6 +113,22 @@ impl NES {
 
                     pending_logs.push(error_string);
                     halt = true;
+                }
+            }
+            //one cpu tick
+            //self.step().unwrap();
+            //three ppu ticks
+            //pending_logs.push(self.ppu.step().unwrap());
+            //pending_logs.push(self.ppu.step().unwrap());
+            //pending_logs.push(self.ppu.step().unwrap());
+            //TODO: this was a stupid fix in the first place and you know it lmfao
+            for _i in 0..self.instr_data.instrs.get(&cur_instr).unwrap().cycles {
+                match self.ppu.step() {
+                    Ok(log) => pending_logs.push(log),
+                    Err(log) => {
+                        pending_logs.push(log);
+                        halt = true;
+                    }
                 }
             }
 

@@ -1,19 +1,17 @@
 extern crate sdl2;
 
-use rand::prelude::*;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-use sdl2::pixels::Color;
 use sdl2::pixels::PixelFormatEnum::RGB24;
 use sdl2::surface::Surface;
-//use std::time::Duration;
+use std::sync::mpsc::Receiver;
 
-pub fn run() -> Result<(), String> {
+pub fn run(channel: Receiver<Vec<u8>>) -> Result<(), String> {
     let sdl_context = sdl2::init()?;
     let video_subsystem = sdl_context.video()?;
 
     let window = video_subsystem
-        .window("rust-nes", 800, 600)
+        .window("rust-nes", 256, 240)
         .position_centered()
         .opengl()
         .build()
@@ -23,21 +21,17 @@ pub fn run() -> Result<(), String> {
     let texture_creator = canvas.texture_creator();
     let mut event_pump = sdl_context.event_pump()?;
 
-    /*canvas.set_draw_color(Color::RGB(255, 0, 0));
-    canvas.clear();
-    canvas.present();*/
-    let mut rng = rand::thread_rng();
+    //let mut rng = rand::thread_rng();
+    //256x240, 3 bytes per pixel
+    //this is 180kb .... probably too much to put on the stack
+    //box it?
+    //let mut buffer: Vec<u8> = vec![200; 184_320];
 
-    //800x600, 3 bytes per pixel
-    //800*3 = 2400 bytes per row
-    let mut buffer: Vec<u8> = vec![200; 1_440_000];
-
-    //let surface = Surface::new(800, 600, PixelFormatEnum::RGB24).unwrap();
-    let surface = Surface::from_data(&mut buffer, 800, 600, 0, RGB24)?;
-    let texture = texture_creator
-        .create_texture_from_surface(surface)
-        .unwrap();
-
+    //this is a loop that does nothing but try to receive a new frame
+    //from the ppu continuously, and when it does, turns it into a texture
+    //and displays it.
+    //TODO: does this need to be changed to be more in line with beam state?
+    //perhaps a mutexed array for a buffer so that both threads can access it
     'running: loop {
         for event in event_pump.poll_iter() {
             match event {
@@ -50,47 +44,22 @@ pub fn run() -> Result<(), String> {
             }
         }
 
-        /*canvas.set_dra799w_color(Color::RGB(
-            rng.gen_range(0..u8::MAX),
-            rng.gen_range(0..u8::MAX),
-            rng.gen_range(0..u8::MAX),
-        ));
-        canvas.clear();*/
-
-        for _i in 0..100 {
-            let x = rng.gen_range(0..800);
-            //let x = 800;
-            //let y = rng.gen_range(0..600);
-            let y = 598;
-            let newR = rng.gen_range(0..u8::MAX);
-            let newG = rng.gen_range(0..u8::MAX);
-            let newB = rng.gen_range(0..u8::MAX);
-
-            //2400 bytes per row of pixels
-            let final_index = (y * 2400) + x;
-            buffer[final_index] = newR;
-            buffer[final_index + 1] = newG;
-            buffer[final_index + 2] = newB;
+        match channel.try_recv() {
+            Ok(mut frame) => {
+                //256x240 24 bits per pixel
+                let surface = Surface::from_data(&mut frame, 256, 240, 768, RGB24)?;
+                let texture = texture_creator
+                    .create_texture_from_surface(surface)
+                    .unwrap();
+                //TODO: if we resize our window, this should handle resizing our
+                //texture automagically
+                canvas.copy(&texture, None, None)?;
+                canvas.present();
+            }
+            Err(_e) => {
+                //nothing to be done if new frame is not ready
+            }
         }
-        /*let new_r = rng.gen_range(0..u8::MAX);
-        let new_g = rng.gen_range(0..u8::MAX);
-        let new_b = rng.gen_range(0..u8::MAX);
-        let bottom_right = 595 * 2400 + 797;
-        buffer[bottom_right] = new_r;
-        buffer[bottom_right + 1] = new_g;
-        buffer[bottom_right + 2] = new_b;*/
-
-        //800x600 24 bits per pixel
-        let surface = Surface::from_data(&mut buffer, 800, 600, 800, RGB24)?;
-        let texture = texture_creator
-            .create_texture_from_surface(surface)
-            .unwrap();
-
-        canvas.copy(&texture, None, None)?;
-
-        canvas.present();
-        //::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 30));
-        // The rest of the game loop goes here...
     }
 
     Ok(())

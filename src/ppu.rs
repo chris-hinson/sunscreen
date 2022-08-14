@@ -1,5 +1,7 @@
 use crate::cart::Cart;
 use crate::vram::Vram;
+use std::fmt::Write;
+use std::sync::mpsc::Sender;
 
 #[allow(dead_code)]
 #[derive(Clone)]
@@ -25,11 +27,14 @@ pub struct Ppu {
     pub cycles: usize,
 
     //number of frames from boot
-    pub frams: usize,
+    pub frames: usize,
+    //mpsc channel for sending a frame to the app thread
+    pub channel: Sender<Vec<u8>>,
+    pub frame: Vec<u8>,
 }
 
 impl Ppu {
-    pub fn new(cart: Cart) -> Self {
+    pub fn new(cart: Cart, channel: Sender<Vec<u8>>) -> Self {
         Ppu {
             OAM: [0; 256],
             regs: PPUREGS::new(),
@@ -38,7 +43,9 @@ impl Ppu {
             cur_dot: 0,
             cur_line: 0,
             cycles: 0,
-            frams: 0,
+            frames: 0,
+            channel,
+            frame: vec![200; 184_320],
         }
     }
 }
@@ -234,39 +241,176 @@ impl Into<u8> for PPUSTATUS {
 }
 
 impl Ppu {
-    //tick our ppu one step
+    //tick our ppu one CLOCK CYCLE
+    //TODO: this is our remnants of a per-pixel renderer
+    /*
     pub fn step(&mut self) {
         match self.cur_line {
             //visible lines
-            0..=239 => match self.cur_dot {
-                //idle cycle
-                0 => {}
-                //data fetch AND next line sprite eval
-                1..=256 => {
-                    //1.Nametable byte
-                    //fetch from $2000
-                    self.read(0x2000, 1);
-                    //2.Attribute table byte
-                    //3.Pattern table tile low
-                    //4.Pattern table tile high (+8 bytes from pattern table tile low)
+            0..=239 => {
+                match self.cur_dot {
+                    //idle cycle
+                    0 => {
+                        //we literally do nothing on this cycle
+                    }
+                    //data fetch AND next line sprite eval
+                    1..=256 => {
+                        let phase = (self.cur_dot - 1) % 8;
+                        match phase {
+                            //1.Nametable byte
+                            0 => {
+                                //fetch from $2000
+                                self.read(0x2000, 1);
+                            }
+                            1 => {
+                            }
+                            //2.Attribute table byte
+                            2 => {}
+                            3 => {}
+                            //3.Pattern table tile low
+                            4 => {}
+                            5 => {}
+                            //4.Pattern table tile high (+8 bytes from pattern table tile low)
+                            6 => {}
+                            7 => {}
+                            _ => unreachable!("we are in a visible line data fetch phase, but modded an invalid value")
+                        }
+                    }
+                    //NEXT LINE sprite fetch
+                    257..=320 => {}
+                    //NEXT LINE first two tiles
+                    321..=336 => {
+                        //send the frame data on the last dot of the last visible line
+                        if self.cur_line == 239 && self.cur_dot == 336 {
+                            self.channel.send(self.frame.clone()).unwrap();
+                            self.frames += 1;
+                        }
+                    }
+                    //unknown bytes fetch
+                    337..=340 => {}
+                    _ => {
+                        unreachable!("WE ARE ON A SCANLINE DOT THAT DOES NOT EXIST")
+                    }
                 }
-                //NEXT LINE sprite fetch
-                257..=320 => {}
-                //NEXT LINE first two tiles
-                321..=336 => {}
-                _ => {
-                    unreachable!("WE ARE ON A SCANLINE DOT THAT DOES NOT EXIST")
-                }
-            },
+            }
+
             //post-render scanline
-            240..=240 => {}
+            240 => {}
             //vblanking
             241..=260 => {}
             //dummy line
             261 => {
-                //During pixels 280 through 304 of this scanline, the vertical scroll bits are reloaded if rendering is enabled.
+                //During pixels 280 through 304 of this scanline,
+                //the vertical scroll bits are reloaded if rendering is enabled.
             }
             _ => unreachable!("IN A SCANLINE THAT DOESNT EXIST"),
         }
+
+        self.tick_beam();
+    }*/
+
+    pub fn step(&mut self) -> Result<String, String> {
+        let mut log_line = String::new();
+        match self.cur_line {
+            //visible lines
+            0..=239 => {
+                //For each pixel in the background buffer,
+                //the corresponding sprite pixel replaces it
+                //only if the sprite pixel is opaque and front priority
+                //or if the background pixel is transparent.
+
+                //what row of tiles are we on
+                let tile_row = self.cur_line / 8;
+
+                //TODO: how do we know what nametable to read from?
+                //since even with mirroring there are still 2 to choose from
+                let nametable_base = 0x2000;
+                let addr = nametable_base + tile_row * 32;
+
+                //fetch 32 tiles (32 bytes) these bytes are actually indexes into our pattern table
+                let tile_data = self.read(addr as u16, 32);
+
+                //now we need to get our patterns
+                for (i, tile) in tile_data.iter().enumerate() {
+                    let pattern_table_base = 0x0000;
+                    let pattern_addr = pattern_table_base + tile * 16;
+                    let pattern_raw = self.read(pattern_addr as u16, 16);
+                    let pattern_hi_plane = &pattern_raw[0..8];
+                    let pattern_lo_plane = &pattern_raw[8..16];
+
+                    //bitwise or every byte in the pattern planes to yield our final pattern
+                    let pattern_final: Vec<u8> = pattern_hi_plane
+                        .iter()
+                        .enumerate()
+                        .map(|(i, v)| *v | pattern_lo_plane[i])
+                        .collect();
+
+                    let pixels = pattern_final[self.cur_line % 8];
+                    let pixels_rgb = self.u8_to_rgb(pixels);
+                    let framebuffer_addr = self.cur_line * 256 * 3 + i * 8 * 3;
+                    for i in 0..24 {
+                        self.frame[framebuffer_addr + i] = pixels_rgb[i];
+                    }
+                    write!(
+                        &mut log_line,
+                        "PPU: line is {}, RGB data is: {:?}",
+                        self.cur_line, pixels_rgb
+                    )
+                    .unwrap();
+                }
+            }
+            //post-render scanline
+            240 => {
+                //literally do nothing. safe to access ppu memory, but no vblank flag has been raised
+            }
+            //vblanking
+            241..=260 => {}
+            //dummy line
+            261 => {
+                //During pixels 280 through 304 of this scanline,
+                //the vertical scroll bits are reloaded if rendering is enabled.
+
+                if self.cur_dot == 341 {
+                    //self.channel.send(vec![255; 184_320]).unwrap();
+                    self.channel.send(self.frame.clone()).unwrap();
+                    self.tick_beam();
+                    return Err("just sent a frame".to_string());
+                };
+            }
+            _ => unreachable!("IN A SCANLINE THAT DOESNT EXIST"),
+        }
+
+        self.tick_beam();
+        return Ok(log_line);
+    }
+
+    fn tick_beam(&mut self) {
+        //increase the dot we're on, wrapping to 0 the end of line
+        if self.cur_dot >= 341 {
+            self.cur_dot = 0;
+            //if we're wrapping the dot, we need to increase our line,
+            //wrapping to 0 after all lines
+            if self.cur_line >= 261 {
+                self.cur_line = 0;
+            } else {
+                self.cur_line += 1;
+            }
+        } else {
+            self.cur_dot += 1
+        };
+    }
+
+    fn u8_to_rgb(&self, pixels: u8) -> Vec<u8> {
+        let mut ret_vec = vec![0; 24];
+        for i in 7..=0 {
+            let bit = (pixels >> i & 0x1) != 0;
+            if bit {
+                ret_vec[(7 - i) * 3] = 255;
+                ret_vec[((7 - i) * 3) + 1] = 255;
+                ret_vec[((7 - i) * 3) + 2] = 255;
+            }
+        }
+
+        return ret_vec;
     }
 }
