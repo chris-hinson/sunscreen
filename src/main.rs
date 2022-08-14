@@ -40,19 +40,14 @@ fn main() {
     log = log.into_iter().rev().collect();
     log.remove(0);
 
-    //load our rom
-    let filename = "./test-roms/nestest/nestest.nes";
-    let rom_file = fs::read(filename).expect("file not found!");
-
     //make our cpu :D
     let cpu = Cpu::new();
-    //set PC to 0xc000
-    //TODO: THIS IS ONLY FOR NESTEST HEADLESS MODE. USE THE RESET VECTOR!!
 
     //make our wram
     let wram = Wram::new();
     //make our "cart"
-    let cart = Cart::new(rom_file[0x10..=0x400f].to_vec());
+    let filename = "./test-roms/nestest/nestest.nes";
+    let cart = Cart::new(filename);
     //ppu and app need a channel to send frame data
     let (tx, rx): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = channel();
     //make our ppu
