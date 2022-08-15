@@ -34,7 +34,14 @@ impl Cart {
             //we have a trainer
             panic!("this rom contains a trainer and we dont know how to deal with that yet");
         } else {
-            rom_raw[17..(16 + prg_rom_size as usize * 16384) as usize].to_vec();
+            rom_raw[17..(16 + prg_rom_size as usize * 16384) as usize].to_vec()
+        };
+
+        let chr_rom = if (flags_6 & 0b0000_0100) != 0 {
+            //we have a trainer
+            panic!("this rom contains a trainer and we dont know how to deal with that yet");
+        } else {
+            rom_raw[(16 + prg_rom_size as usize * 16384) + 1 as usize..].to_vec()
         };
 
         /*let mut init_contents: Vec<u8> = vec![0; 16384];
